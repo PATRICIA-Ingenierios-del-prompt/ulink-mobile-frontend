@@ -1,7 +1,10 @@
 import { Image } from "expo-image";
+import { useRouter } from "expo-router";
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 export default function WelcomeLoginScreen() {
+  const router = useRouter();
+
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.container}>
@@ -10,7 +13,7 @@ export default function WelcomeLoginScreen() {
           <Text style={styles.welcomeTitle}>Welcome to U·link</Text>
           <Text style={styles.subtitle}>Sign in to continue to your account</Text>
 
-          <Pressable style={styles.button}>
+          <Pressable style={styles.button} onPress={() => router.push("/home")}>
             <Image
               source={require("../assets/images/microsoft.png")}
               contentFit="contain"
