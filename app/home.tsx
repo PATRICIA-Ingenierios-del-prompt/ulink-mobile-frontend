@@ -235,12 +235,12 @@ export default function HomeScreen() {
       >
         {/* Header section */}
         <View style={styles.headerSection}>
-          {/* Top bar: heart icon left, U·link logo right */}
+          {/* Top bar: leaf wellness icon left, U·link logo right */}
           <View style={styles.topBar}>
             <Ionicons
-              name="heart-outline"
-              size={34}
-              color="rgba(160, 160, 190, 0.7)"
+              name="leaf-outline"
+              size={28}
+              color="rgba(143, 132, 224, 0.75)"
             />
             <View style={styles.topBarSpacer} />
             <Image
@@ -314,8 +314,6 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {/* Glass nav bar */}
-      <GlassNavBar activeTab="home" />
     </SafeAreaView>
   );
 }

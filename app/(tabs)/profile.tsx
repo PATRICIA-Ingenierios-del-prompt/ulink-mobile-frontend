@@ -9,7 +9,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { GlassNavBar } from "@/components/glass-nav-bar";
 import { useTranslation } from "@/hooks/useTranslation";
 
 export default function ProfileScreen() {
@@ -159,8 +158,6 @@ export default function ProfileScreen() {
         </View>
       </ScrollView>
 
-      {/* ── Glass nav bar ── */}
-      <GlassNavBar activeTab="profile" />
     </SafeAreaView>
   );
 }

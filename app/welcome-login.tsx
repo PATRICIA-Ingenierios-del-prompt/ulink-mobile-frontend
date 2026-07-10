@@ -13,7 +13,7 @@ export default function WelcomeLoginScreen() {
           <Text style={styles.welcomeTitle}>Welcome to U·link</Text>
           <Text style={styles.subtitle}>Sign in to continue to your account</Text>
 
-          <Pressable style={styles.button} onPress={() => router.push("/home")}>
+          <Pressable style={styles.button} onPress={() => router.replace("/(tabs)/home")}>
             <Image
               source={require("../assets/images/microsoft.png")}
               contentFit="contain"

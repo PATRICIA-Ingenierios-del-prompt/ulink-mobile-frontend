@@ -11,7 +11,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { GlassNavBar } from "@/components/glass-nav-bar";
 import { useTranslation } from "@/hooks/useTranslation";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -99,15 +98,11 @@ export default function MatchingScreen() {
       {/* ── Top bar: heart left | avatar right ── */}
       <View style={styles.topBar}>
         <Pressable style={styles.topHeart}>
-          <Ionicons name="heart-outline" size={26} color="rgba(160, 160, 190, 0.7)" />
+          <Ionicons name="leaf-outline" size={24} color="rgba(143, 132, 224, 0.75)" />
         </Pressable>
 
-        {/* Center logo / title area (invisible, just for spacing) */}
+        {/* Center divider line */}
         <View style={styles.topCenter}>
-          <View style={styles.topDividerLine} />
-          <View style={styles.topDividerDiamond}>
-            <Ionicons name="diamond-outline" size={10} color="rgba(143, 132, 224, 0.6)" />
-          </View>
           <View style={styles.topDividerLine} />
         </View>
 
@@ -119,7 +114,7 @@ export default function MatchingScreen() {
 
       {/* ── Title section ── */}
       <View style={styles.titleSection}>
-        <Text style={styles.mainTitle}>{t("searching_parches")}</Text>
+        <Text style={styles.mainTitle}>Matching</Text>
       </View>
 
       {/* ── Swipe card ── */}
@@ -235,8 +230,6 @@ export default function MatchingScreen() {
         </View>
       </Animated.View>
 
-      {/* ── Glass nav bar ── */}
-      <GlassNavBar activeTab="explore" />
     </SafeAreaView>
   );
 }
@@ -304,6 +297,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingTop: 2,
     paddingBottom: 12,
+  },
+  mainTitle: {
+    color: "rgba(236, 237, 248, 1)",
+    fontSize: 26,
+    fontWeight: "700",
+    letterSpacing: -0.6,
+    lineHeight: 34,
   },
   titleText: {
     color: "rgba(255, 255, 255, 1)",

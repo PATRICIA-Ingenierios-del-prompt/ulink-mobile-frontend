@@ -5,12 +5,6 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  withTiming,
-  withDelay,
-  interpolate,
-  Easing,
-  FadeIn,
-  SlideInDown,
 } from "react-native-reanimated";
 import { useRouter, usePathname } from "expo-router";
 
@@ -26,27 +20,27 @@ interface NavTab {
 }
 
 const TABS: NavTab[] = [
-  { 
-    key: "home", 
-    route: "/home", 
-    icon: "compass-outline", 
-    iconActive: "compass" 
+  {
+    key: "home",
+    route: "/(tabs)/home",
+    icon: "compass-outline",
+    iconActive: "compass",
   },
   {
     key: "explore",
-    route: "/explore",
+    route: "/(tabs)/explore",
     icon: "heart-outline",
     iconActive: "heart",
   },
   {
     key: "parches",
-    route: "/parches",
+    route: "/(tabs)/parches",
     icon: "people-outline",
     iconActive: "people",
   },
   {
     key: "events",
-    route: "/events",
+    route: "/(tabs)/events",
     icon: "calendar-outline",
     iconActive: "calendar",
   },
@@ -72,7 +66,6 @@ function NavButton({
   const scale = useSharedValue(1);
   const bgOpacity = useSharedValue(isActive ? 1 : 0);
 
-  // Animate active state changes
   useEffect(() => {
     bgOpacity.value = withSpring(isActive ? 1 : 0, {
       damping: 15,
@@ -90,7 +83,8 @@ function NavButton({
 
   const handlePress = useCallback(() => {
     if (!isActive) {
-      router.push(tab.route as any);
+      // navigate() switches tabs without pushing onto the stack
+      router.navigate(tab.route as any);
     }
   }, [isActive, router, tab.route]);
 
@@ -127,18 +121,16 @@ export function GlassNavBar({ style, activeTab }: GlassNavBarProps) {
   // Infer active tab from route if not explicitly provided
   const currentTab =
     activeTab ??
-    TABS.find((t) => pathname === t.route || pathname.startsWith(t.route + "/"))
-      ?.key ??
+    TABS.find((t) => {
+      // Match by the last segment of the route (e.g. "home", "explore")
+      const segment = t.route.split("/").pop();
+      return pathname === t.route || pathname.endsWith(`/${segment}`);
+    })?.key ??
     "home";
 
   return (
-    <View style={styles.outerWrap}>
-      <Animated.View
-        entering={SlideInDown.duration(500)
-          .delay(200)
-          .easing(Easing.out(Easing.cubic))}
-        style={[styles.root, style]}
-      >
+    <View style={[styles.outerWrap, style]}>
+      <View style={styles.root}>
         {TABS.map((tab, index) => (
           <NavButton
             key={tab.key}
@@ -147,7 +139,7 @@ export function GlassNavBar({ style, activeTab }: GlassNavBarProps) {
             index={index}
           />
         ))}
-      </Animated.View>
+      </View>
     </View>
   );
 }
@@ -160,6 +152,8 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: "center",
     paddingBottom: 30,
+    // Pointer events pass through the transparent area
+    pointerEvents: "box-none",
   },
   root: {
     flexDirection: "row",
