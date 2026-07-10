@@ -26,24 +26,29 @@ interface NavTab {
 }
 
 const TABS: NavTab[] = [
-  { key: "home", route: "/home", icon: "home-outline", iconActive: "home" },
+  { 
+    key: "home", 
+    route: "/home", 
+    icon: "compass-outline", 
+    iconActive: "compass" 
+  },
   {
     key: "explore",
     route: "/explore",
-    icon: "compass-outline",
-    iconActive: "compass",
+    icon: "heart-outline",
+    iconActive: "heart",
+  },
+  {
+    key: "parches",
+    route: "/parches",
+    icon: "people-outline",
+    iconActive: "people",
   },
   {
     key: "events",
     route: "/events",
     icon: "calendar-outline",
     iconActive: "calendar",
-  },
-  {
-    key: "profile",
-    route: "/profile",
-    icon: "person-outline",
-    iconActive: "person",
   },
 ];
 

@@ -9,6 +9,7 @@ import {
   Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 import { GlassNavBar } from "@/components/glass-nav-bar";
 
@@ -202,6 +203,7 @@ function ActivityRow({
 }
 
 export default function HomeScreen() {
+  const router = useRouter();
   const [activeFilter, setActiveFilter] = useState<"friends" | "servers">("friends");
 
   // Get greeting based on time of day
@@ -252,7 +254,7 @@ export default function HomeScreen() {
                 {"\n"}Juan
               </Text>
             </View>
-            <View style={styles.bigAvatarWrap}>
+            <Pressable style={styles.bigAvatarWrap} onPress={() => router.push("/profile")}>
               <View style={styles.bigAvatar}>
                 <Text style={styles.bigAvatarText}>TU</Text>
               </View>
@@ -260,7 +262,7 @@ export default function HomeScreen() {
               <View style={styles.bigAvatarOnline}>
                 <View style={styles.bigAvatarOnlineDot} />
               </View>
-            </View>
+            </Pressable>
           </View>
 
           {/* Date & subtitle */}

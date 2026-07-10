@@ -11,6 +11,9 @@ export default function TabLayout() {
     >
       <Tabs.Screen name="index" />
       <Tabs.Screen name="explore" />
+      <Tabs.Screen name="parches" />
+      <Tabs.Screen name="events" />
+      <Tabs.Screen name="profile" options={{ href: null }} />
     </Tabs>
   );
 }

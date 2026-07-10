@@ -8,6 +8,7 @@ import {
   Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { GlassNavBar } from "@/components/glass-nav-bar";
@@ -66,6 +67,7 @@ const MATCH_PROFILES = [
 ];
 
 export default function MatchingScreen() {
+  const router = useRouter();
   const [currentIndex, setCurrentIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
@@ -108,9 +110,9 @@ export default function MatchingScreen() {
         </View>
 
         {/* User avatar top-right */}
-        <View style={styles.topAvatar}>
+        <Pressable style={styles.topAvatar} onPress={() => router.push("/profile")}>
           <Text style={styles.topAvatarText}>TU</Text>
-        </View>
+        </Pressable>
       </View>
 
       {/* ── Title section ── */}
