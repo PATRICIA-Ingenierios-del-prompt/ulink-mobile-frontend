@@ -10,9 +10,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useTranslation, Language } from "@/hooks/useTranslation";
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { t, language, setLanguage } = useTranslation();
   
   // Toggles state
   const [matchesNotif, setMatchesNotif] = useState(true);
@@ -32,35 +34,64 @@ export default function SettingsScreen() {
         <Pressable style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={20} color="rgba(236, 237, 248, 1)" />
         </Pressable>
-        <Text style={styles.headerTitle}>Ajustes</Text>
+        <Text style={styles.headerTitle}>{t("settings")}</Text>
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
+        {/* ── Idioma ── */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t("language")}</Text>
+          <View style={styles.card}>
+            <View style={styles.paddingRow}>
+              <View style={styles.radioGroup}>
+                <RadioOption 
+                  selected={language === "es"} 
+                  onPress={() => setLanguage("es")}
+                  title={t("lang_es")} 
+                  activeIcon="checkmark-circle"
+                />
+                <RadioOption 
+                  selected={language === "en"} 
+                  onPress={() => setLanguage("en")}
+                  title={t("lang_en")} 
+                  activeIcon="checkmark-circle"
+                />
+                <RadioOption 
+                  selected={language === "fr"} 
+                  onPress={() => setLanguage("fr")}
+                  title={t("lang_fr")} 
+                  activeIcon="checkmark-circle"
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+
         {/* ── Notificaciones ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>NOTIFICACIONES</Text>
+          <Text style={styles.sectionTitle}>{t("notifications")}</Text>
           <View style={styles.card}>
             <SettingRow 
               icon="people-outline" 
-              title="Nuevos matches" 
-              desc="Alertas cuando alguien te da match"
+              title={t("new_matches")} 
+              desc={t("new_matches_desc")}
               control={<CustomSwitch value={matchesNotif} onValueChange={setMatchesNotif} />}
             />
             <View style={styles.divider} />
             <SettingRow 
               icon="notifications-outline" 
-              title="Mensajes de parches" 
-              desc="Avisos de chats no leídos"
+              title={t("messages")} 
+              desc={t("messages_desc")}
               control={<CustomSwitch value={messagesNotif} onValueChange={setMessagesNotif} />}
             />
             <View style={styles.divider} />
             <SettingRow 
               icon="flash-outline" 
-              title="Eventos cercanos" 
-              desc="Recordatorios de eventos próximos"
+              title={t("nearby_events")} 
+              desc={t("nearby_events_desc")}
               control={<CustomSwitch value={eventsNotif} onValueChange={setEventsNotif} />}
             />
           </View>
@@ -68,14 +99,14 @@ export default function SettingsScreen() {
 
         {/* ── Privacidad ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>PRIVACIDAD</Text>
+          <Text style={styles.sectionTitle}>{t("privacy")}</Text>
           <View style={styles.card}>
             <View style={styles.paddingRow}>
               <View style={styles.rowHeader}>
                 <View style={styles.iconBox}>
                   <Ionicons name="eye-outline" size={18} color="rgba(129, 140, 248, 1)" />
                 </View>
-                <Text style={styles.rowTitle}>Visibilidad del perfil</Text>
+                <Text style={styles.rowTitle}>{t("profile_visibility")}</Text>
               </View>
               <View style={styles.segmentedControl}>
                 <Pressable 
@@ -83,22 +114,22 @@ export default function SettingsScreen() {
                   onPress={() => setProfileVis("public")}
                 >
                   <Ionicons name="eye" size={14} color={profileVis === "public" ? "#fff" : "rgba(143, 132, 224, 0.6)"} />
-                  <Text style={[styles.segmentText, profileVis === "public" && styles.segmentTextActive]}>Público</Text>
+                  <Text style={[styles.segmentText, profileVis === "public" && styles.segmentTextActive]}>{t("public")}</Text>
                 </Pressable>
                 <Pressable 
                   style={[styles.segmentBtn, profileVis === "private" && styles.segmentBtnActive]}
                   onPress={() => setProfileVis("private")}
                 >
                   <Ionicons name="eye-off" size={14} color={profileVis === "private" ? "#fff" : "rgba(143, 132, 224, 0.6)"} />
-                  <Text style={[styles.segmentText, profileVis === "private" && styles.segmentTextActive]}>Privado</Text>
+                  <Text style={[styles.segmentText, profileVis === "private" && styles.segmentTextActive]}>{t("private")}</Text>
                 </Pressable>
               </View>
             </View>
             <View style={styles.divider} />
             <SettingRow 
               icon="eye-off-outline" 
-              title="Modo incógnito en Matching" 
-              desc="Navega sin que nadie te vea"
+              title={t("incognito")} 
+              desc={t("incognito_desc")}
               control={<CustomSwitch value={incognitoMode} onValueChange={setIncognitoMode} />}
             />
           </View>
@@ -106,7 +137,7 @@ export default function SettingsScreen() {
 
         {/* ── Accesibilidad ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>ACCESIBILIDAD</Text>
+          <Text style={styles.sectionTitle}>{t("accessibility")}</Text>
           <View style={styles.card}>
             <View style={styles.paddingRow}>
               <View style={styles.rowHeader}>
@@ -114,33 +145,33 @@ export default function SettingsScreen() {
                   <Ionicons name="color-palette-outline" size={18} color="rgba(129, 140, 248, 1)" />
                 </View>
                 <View>
-                  <Text style={styles.rowTitle}>Visión del color</Text>
+                  <Text style={styles.rowTitle}>{t("color_vision")}</Text>
                   <Text style={styles.rowDescSmall}>Brettel et al., 1997</Text>
                 </View>
               </View>
               <Text style={styles.accessibilityDesc}>
-                Simula cómo personas con daltonismo perciben la interfaz.
+                {t("color_vision_desc")}
               </Text>
               
               <View style={styles.radioGroup}>
                 <RadioOption 
                   selected={colorVision === "normal"} 
                   onPress={() => setColorVision("normal")}
-                  title="Visión Normal" 
-                  desc="Colores como fueron diseñados"
+                  title={t("normal_vision")} 
+                  desc={t("normal_vision_desc")}
                   activeIcon="checkmark-circle"
                 />
                 <RadioOption 
                   selected={colorVision === "deuteranopia"} 
                   onPress={() => setColorVision("deuteranopia")}
-                  title="Deuteranopia" 
-                  desc="Eje perspectiva del verde"
+                  title={t("deuteranopia")} 
+                  desc={t("deuteranopia_desc")}
                 />
                 <RadioOption 
                   selected={colorVision === "protanopia"} 
                   onPress={() => setColorVision("protanopia")}
-                  title="Protanopia" 
-                  desc="Eje perspectiva del rojo"
+                  title={t("protanopia")} 
+                  desc={t("protanopia_desc")}
                 />
               </View>
             </View>
@@ -149,8 +180,8 @@ export default function SettingsScreen() {
             
             <SettingRow 
               icon="text-outline" 
-              title="Modo lectura fácil" 
-              desc="Fuente Lexend o Inter estándar"
+              title={t("easy_reading")} 
+              desc={t("easy_reading_desc")}
               control={<CustomSwitch value={easyReading} onValueChange={setEasyReading} />}
             />
           </View>
@@ -158,51 +189,51 @@ export default function SettingsScreen() {
 
         {/* ── Sesión y Cuenta ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>SESIÓN Y CUENTA</Text>
+          <Text style={styles.sectionTitle}>{t("account_session")}</Text>
           <View style={styles.buttonRow}>
             <Pressable style={styles.actionButton}>
               <Ionicons name="log-out-outline" size={18} color="rgba(255, 100, 100, 1)" />
-              <Text style={styles.actionButtonTextDanger}>Cerrar sesión</Text>
+              <Text style={styles.actionButtonTextDanger}>{t("logout")}</Text>
             </Pressable>
             <Pressable style={styles.actionButton}>
               <Ionicons name="trash-outline" size={18} color="rgba(255, 100, 100, 1)" />
-              <Text style={styles.actionButtonTextDanger}>Eliminar cuenta</Text>
+              <Text style={styles.actionButtonTextDanger}>{t("delete_account")}</Text>
             </Pressable>
           </View>
         </View>
 
         {/* ── Sobre U-link ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>SOBRE U·LINK</Text>
+          <Text style={styles.sectionTitle}>{t("about_ulink")}</Text>
           <View style={styles.card}>
             <View style={styles.aboutGrid}>
               <View style={styles.aboutCol}>
-                <Text style={styles.aboutLabel}>Versión</Text>
+                <Text style={styles.aboutLabel}>{t("version")}</Text>
                 <Text style={styles.aboutValue}>1.0.0</Text>
               </View>
               <View style={styles.aboutCol}>
-                <Text style={styles.aboutLabel}>Institución</Text>
+                <Text style={styles.aboutLabel}>{t("institution")}</Text>
                 <Text style={styles.aboutValue}>ECI</Text>
               </View>
               <View style={styles.aboutCol}>
-                <Text style={styles.aboutLabel}>Soporte</Text>
+                <Text style={styles.aboutLabel}>{t("support")}</Text>
                 <Text style={styles.aboutValue}>24/7</Text>
               </View>
             </View>
           </View>
           
           <View style={[styles.card, { marginTop: 12 }]}>
-            <SettingLink icon="document-text-outline" title="Términos de uso" />
+            <SettingLink icon="document-text-outline" title={t("terms")} />
             <View style={styles.divider} />
-            <SettingLink icon="shield-checkmark-outline" title="Política de privacidad" />
+            <SettingLink icon="shield-checkmark-outline" title={t("privacy_policy")} />
             <View style={styles.divider} />
-            <SettingLink icon="help-circle-outline" title="Centro de ayuda" />
+            <SettingLink icon="help-circle-outline" title={t("help_center")} />
           </View>
         </View>
         
         <View style={styles.footer}>
           <Text style={styles.footerTitle}>U·link</Text>
-          <Text style={styles.footerCredits}>Hecho con ❤️ en la ECI · v1.0.0</Text>
+          <Text style={styles.footerCredits}>{t("made_in")} · v1.0.0</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -265,7 +296,7 @@ function RadioOption({ selected, onPress, title, desc, activeIcon }: any) {
       </View>
       <View style={styles.radioTextWrap}>
         <Text style={[styles.radioTitle, selected && styles.radioTitleActive]}>{title}</Text>
-        <Text style={styles.radioDesc}>{desc}</Text>
+        {desc && <Text style={styles.radioDesc}>{desc}</Text>}
       </View>
       {selected && activeIcon && (
         <Ionicons name={activeIcon} size={16} color="rgba(129, 140, 248, 1)" style={{ marginLeft: "auto" }} />

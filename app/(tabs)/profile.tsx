@@ -10,9 +10,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { GlassNavBar } from "@/components/glass-nav-bar";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
 
   return (
     <SafeAreaView style={styles.root}>
@@ -23,7 +25,7 @@ export default function ProfileScreen() {
         {/* ── Top Header ── */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <Text style={styles.profileLabel}>TU PERFIL</Text>
+            <Text style={styles.profileLabel}>{t("your_profile")}</Text>
             <Text style={styles.appTitle}>U·link</Text>
           </View>
           <View style={styles.headerRight}>
@@ -43,7 +45,7 @@ export default function ProfileScreen() {
         <View style={styles.profileInfoSection}>
           <View style={styles.avatarWrap}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>TU</Text>
+              <Text style={styles.avatarText}>{t("you")}</Text>
             </View>
             <View style={styles.onlineBadge} />
           </View>
@@ -68,17 +70,17 @@ export default function ProfileScreen() {
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
             <Text style={styles.statCount}>24</Text>
-            <Text style={styles.statLabel}>Amigos</Text>
+            <Text style={styles.statLabel}>{t("friends_count")}</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statCount}>8</Text>
-            <Text style={styles.statLabel}>Servidores</Text>
+            <Text style={styles.statLabel}>{t("servers_count")}</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statCount}>12</Text>
-            <Text style={styles.statLabel}>Eventos</Text>
+            <Text style={styles.statLabel}>{t("events_count")}</Text>
           </View>
         </View>
 
@@ -91,7 +93,7 @@ export default function ProfileScreen() {
 
         {/* ── Interests ── */}
         <View style={styles.interestsSection}>
-          <Text style={styles.sectionLabel}>INTERESES</Text>
+          <Text style={styles.sectionLabel}>{t("interests")}</Text>
           <View style={styles.tagsContainer}>
             <View style={styles.tag}><Text style={styles.tagText}>Full Stack</Text></View>
             <View style={styles.tag}><Text style={styles.tagText}>Robótica</Text></View>
@@ -106,49 +108,49 @@ export default function ProfileScreen() {
           <View style={styles.xpHeader}>
             <View style={styles.xpHeaderLeft}>
               <Ionicons name="flash-outline" size={16} color="rgba(99, 102, 241, 1)" style={{ marginRight: 6 }} />
-              <Text style={styles.xpLabel}>Progreso XP</Text>
+              <Text style={styles.xpLabel}>{t("xp_progress")}</Text>
             </View>
             <Text style={styles.xpValue}>2 340 / 3 000 XP</Text>
           </View>
           <View style={styles.progressBarBg}>
             <View style={styles.progressBarFill} />
           </View>
-          <Text style={styles.xpSubtitle}>Nivel 12 · 660 XP para el siguiente</Text>
+          <Text style={styles.xpSubtitle}>{t("level")} 12 · 660 {t("xp_next")}</Text>
         </View>
 
         {/* ── Recent Activity ── */}
         <View style={styles.activitySection}>
           <View style={styles.activityHeader}>
-            <Text style={styles.sectionLabelWhite}>Actividad reciente</Text>
-            <Text style={styles.viewAllText}>Ver todo</Text>
+            <Text style={styles.sectionLabelWhite}>{t("recent_activity")}</Text>
+            <Text style={styles.viewAllText}>{t("view_all")}</Text>
           </View>
 
           <View style={styles.activityCard}>
             <ActivityItem 
               initials="CR" 
               name="Camila R." 
-              action="Te invitó a Hackathon ECI 2028" 
+              action={`${t("activity_invite")} Hackathon ECI 2028`}
               time="5 min" 
               color="rgba(124, 106, 245, 1)" 
             />
             <ActivityItem 
               initials="AT" 
               name="Andrés T." 
-              action="Se unió a IEEE Student Branch" 
+              action={`${t("activity_join")} IEEE Student Branch`}
               time="18 min" 
               color="rgba(59, 140, 245, 1)" 
             />
             <ActivityItem 
               initials="SM" 
               name="Sofía M." 
-              action="Compartió Mindfulness Workshop" 
+              action={`${t("activity_share")} Mindfulness Workshop`}
               time="34 min" 
               color="rgba(35, 165, 89, 1)" 
             />
             <ActivityItem 
               initials="FA" 
               name="Felipe A." 
-              action="Alcanzó Nivel 12 en ECI" 
+              action={`${t("activity_level")} 12`}
               time="1 h" 
               color="rgba(240, 178, 50, 1)" 
               noBorder

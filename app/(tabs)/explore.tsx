@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { GlassNavBar } from "@/components/glass-nav-bar";
+import { useTranslation } from "@/hooks/useTranslation";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -68,6 +69,7 @@ const MATCH_PROFILES = [
 
 export default function MatchingScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
@@ -111,14 +113,13 @@ export default function MatchingScreen() {
 
         {/* User avatar top-right */}
         <Pressable style={styles.topAvatar} onPress={() => router.push("/profile")}>
-          <Text style={styles.topAvatarText}>TU</Text>
+          <Text style={styles.topAvatarText}>{t("you")}</Text>
         </Pressable>
       </View>
 
       {/* ── Title section ── */}
       <View style={styles.titleSection}>
-        <Text style={styles.titleText}>Matching</Text>
-        <Text style={styles.subtitleText}>Find your study match</Text>
+        <Text style={styles.mainTitle}>{t("searching_parches")}</Text>
       </View>
 
       {/* ── Swipe card ── */}
@@ -140,8 +141,8 @@ export default function MatchingScreen() {
             {/* Top chips row */}
             <View style={styles.cardTopChips}>
               <View style={styles.matchChip}>
-                <Ionicons name="star" size={10} color="rgba(143, 132, 224, 1)" style={{ marginRight: 4 }} />
-                <Text style={styles.matchChipText}>{profile.compatibility}% match</Text>
+                <Ionicons name="sparkles" size={14} color="rgba(251, 191, 36, 1)" />
+                <Text style={styles.badgeText}>{profile.compatibility}% {t("match_compatibility")}</Text>
               </View>
               <View style={styles.uniChip}>
                 <Text style={styles.uniChipText}>{profile.university}</Text>

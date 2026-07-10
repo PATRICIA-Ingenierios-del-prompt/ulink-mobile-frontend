@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
 import { GlassNavBar } from "@/components/glass-nav-bar";
+import { useTranslation } from "@/hooks/useTranslation";
 
 const ACTIVITY_DATA = [
   {
@@ -204,13 +205,16 @@ function ActivityRow({
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const [activeFilter, setActiveFilter] = useState<"friends" | "servers">("friends");
 
   // Get greeting based on time of day
-  const hour = new Date().getHours();
-  let greeting = "Buenos días,";
-  if (hour >= 12 && hour < 18) greeting = "Buenas tardes,";
-  else if (hour >= 18) greeting = "Buenas noches,";
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return t("good_morning");
+    if (hour < 18) return t("good_afternoon");
+    return t("good_evening");
+  };
 
   // Get formatted date
   const dateStr = new Date().toLocaleDateString("en-US", {
@@ -250,13 +254,13 @@ export default function HomeScreen() {
           <View style={styles.greetingRow}>
             <View style={styles.greetingTextWrap}>
               <Text style={styles.greetingText}>
-                {greeting}
+                {getGreeting()},
                 {"\n"}Juan
               </Text>
             </View>
             <Pressable style={styles.bigAvatarWrap} onPress={() => router.push("/profile")}>
               <View style={styles.bigAvatar}>
-                <Text style={styles.bigAvatarText}>TU</Text>
+                <Text style={styles.bigAvatarText}>You</Text>
               </View>
               {/* Online indicator on avatar */}
               <View style={styles.bigAvatarOnline}>
@@ -269,7 +273,7 @@ export default function HomeScreen() {
           <View style={styles.metaSection}>
             <Text style={styles.dateText}>{dateStr}</Text>
             <Text style={styles.subtitleText}>
-              Here's what's happening with your people today.
+              {t("recent_activity")}
             </Text>
           </View>
         </View>
@@ -281,7 +285,7 @@ export default function HomeScreen() {
             onPress={() => setActiveFilter("friends")}
           >
             <Text style={activeFilter === "friends" ? styles.tabActiveText : styles.tabInactiveText}>
-              Friends
+              {t("filter_friends")}
             </Text>
           </Pressable>
           <Pressable
@@ -289,12 +293,12 @@ export default function HomeScreen() {
             onPress={() => setActiveFilter("servers")}
           >
             <Text style={activeFilter === "servers" ? styles.tabActiveText : styles.tabInactiveText}>
-              Servers
+              {t("filter_servers")}
             </Text>
           </Pressable>
           <View style={styles.tabSpacer} />
           <Pressable>
-            <Text style={styles.seeAllText}>See all</Text>
+            <Text style={styles.seeAllText}>{t("view_all")}</Text>
           </Pressable>
         </View>
 

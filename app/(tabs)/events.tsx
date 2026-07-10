@@ -2,14 +2,17 @@ import React from "react";
 import { View, Text, StyleSheet, SafeAreaView } from "react-native";
 import { GlassNavBar } from "@/components/glass-nav-bar";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export default function EventsScreen() {
+  const { t } = useTranslation();
+  
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.container}>
         <Ionicons name="calendar-outline" size={60} color="rgba(143, 132, 224, 1)" />
-        <Text style={styles.title}>Eventos</Text>
-        <Text style={styles.subtitle}>¡Próximamente!</Text>
+        <Text style={styles.title}>{t("nav_events")}</Text>
+        <Text style={styles.subtitle}>{t("coming_soon")}</Text>
       </View>
       <GlassNavBar activeTab="events" />
     </SafeAreaView>
