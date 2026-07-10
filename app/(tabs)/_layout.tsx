@@ -19,6 +19,7 @@ export default function TabLayout() {
         {/* Hidden from tab bar — navigated to via router.push */}
         <Tabs.Screen name="index" options={{ href: null }} />
         <Tabs.Screen name="profile" options={{ href: null }} />
+        <Tabs.Screen name="parche" options={{ href: null }} />
       </Tabs>
 
       {/* Persistent nav bar — rendered once at layout level, never re-mounts */}

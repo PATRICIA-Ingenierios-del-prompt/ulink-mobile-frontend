@@ -149,13 +149,16 @@ function ClockIcon({ size = 12, color = "rgba(143, 132, 224, 1)" }) {
 function ActivityRow({
   item,
   isLast,
+  onPress,
 }: {
   item: (typeof ACTIVITY_DATA)[0];
   isLast: boolean;
+  onPress?: () => void;
 }) {
   return (
     <Pressable
       style={[styles.activityRow, !isLast && styles.activityRowBorder]}
+      onPress={onPress}
     >
       {/* Online indicator */}
       <View style={styles.onlineIndicatorWrap}>
@@ -309,6 +312,7 @@ export default function HomeScreen() {
               key={item.initials}
               item={item}
               isLast={index === displayData.length - 1}
+              onPress={() => router.push(activeFilter === "servers" ? "/(tabs)/parche" : "/call")}
             />
           ))}
         </View>

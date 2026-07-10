@@ -181,6 +181,7 @@ function StatusDot({ status }: { status: OnlineStatus }) {
 // ─── Friend row ───────────────────────────────────────────────────────────────
 
 function FriendRow({ friend }: { friend: Friend }) {
+  const router = useRouter();
   const labelColor =
     friend.status === "online"
       ? "rgba(35, 165, 89, 1)"
@@ -220,6 +221,7 @@ function FriendRow({ friend }: { friend: Friend }) {
             styles.actionIconBtnSecondary,
             pressed && { opacity: 0.7, transform: [{ scale: 0.92 }] },
           ]}
+          onPress={() => router.push("/call")}
         >
           <Ionicons name="call" size={16} color="rgba(143, 132, 224, 0.8)" />
         </Pressable>
@@ -231,6 +233,7 @@ function FriendRow({ friend }: { friend: Friend }) {
 // ─── Server card ──────────────────────────────────────────────────────────────
 
 function ServerCard({ server }: { server: Server }) {
+  const router = useRouter();
   const accentFaint = server.accentColor.replace("1)", "0.15)");
   const accentBorder = server.accentColor.replace("1)", "0.30)");
 
@@ -241,6 +244,7 @@ function ServerCard({ server }: { server: Server }) {
         { borderColor: accentBorder },
         pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
       ]}
+      onPress={() => router.push("/(tabs)/parche")}
     >
       {/* Background tint */}
       <View style={[styles.serverCardBg, { backgroundColor: accentFaint }]} />
