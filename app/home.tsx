@@ -240,11 +240,13 @@ export default function HomeScreen() {
         <View style={styles.headerSection}>
           {/* Top bar: leaf wellness icon left, U·link logo right */}
           <View style={styles.topBar}>
-            <Ionicons
-              name="leaf-outline"
-              size={28}
-              color="rgba(143, 132, 224, 0.75)"
-            />
+            <Pressable onPress={() => router.push("/bienestar")}>
+              <Ionicons
+                name="leaf-outline"
+                size={28}
+                color="rgba(143, 132, 224, 0.75)"
+              />
+            </Pressable>
             <View style={styles.topBarSpacer} />
             <Image
               source={require("../assets/images/logoNuevoOscuro.png")}
