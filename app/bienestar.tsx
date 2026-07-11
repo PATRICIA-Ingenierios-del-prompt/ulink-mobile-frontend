@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, Pressable, Text } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, StyleSheet, Pressable, Text, Animated } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -8,22 +8,79 @@ import { Bienestar2 } from '../components/bienestar/Bienestar2';
 import { Bienestar3 } from '../components/bienestar/Bienestar3';
 import { Bienestar4 } from '../components/bienestar/Bienestar4';
 
+const TABS = [
+  { id: 1 as const, label: 'Mono' },
+  { id: 2 as const, label: 'Diario' },
+  { id: 3 as const, label: 'Sonidos' },
+  { id: 4 as const, label: 'Respira' },
+];
+
+function AnimatedTab({
+  label,
+  isActive,
+  onPress,
+}: {
+  label: string;
+  isActive: boolean;
+  onPress: () => void;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const handlePress = () => {
+    // Instagram-style: compress then spring bounce back
+    Animated.sequence([
+      Animated.spring(scale, {
+        toValue: 0.82,
+        useNativeDriver: true,
+        speed: 50,
+        bounciness: 0,
+      }),
+      Animated.spring(scale, {
+        toValue: 1,
+        useNativeDriver: true,
+        speed: 14,
+        bounciness: 14,
+      }),
+    ]).start();
+    onPress();
+  };
+
+  return (
+    <Pressable onPress={handlePress} style={{ flexShrink: 1 }}>
+      <Animated.View
+        style={[
+          isActive ? styles.activeTabButton : styles.inactiveTabButton,
+          { transform: [{ scale }] },
+        ]}
+      >
+        <Text style={isActive ? styles.activeTabText : styles.inactiveTabText}>
+          {label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 export default function BienestarScreen() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<1 | 2 | 3 | 4>(1);
+  const backScale = useRef(new Animated.Value(1)).current;
+
+  const handleBackPress = () => {
+    Animated.sequence([
+      Animated.spring(backScale, { toValue: 0.85, useNativeDriver: true, speed: 50, bounciness: 0 }),
+      Animated.spring(backScale, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 12 }),
+    ]).start();
+    router.back();
+  };
 
   const renderContent = () => {
     switch (activeTab) {
-      case 1:
-        return <Bienestar1 onTabChange={setActiveTab} />;
-      case 2:
-        return <Bienestar2 onTabChange={setActiveTab} />;
-      case 3:
-        return <Bienestar3 onTabChange={setActiveTab} />;
-      case 4:
-        return <Bienestar4 onTabChange={setActiveTab} />;
-      default:
-        return <Bienestar1 onTabChange={setActiveTab} />;
+      case 1: return <Bienestar1 onTabChange={setActiveTab} />;
+      case 2: return <Bienestar2 onTabChange={setActiveTab} />;
+      case 3: return <Bienestar3 onTabChange={setActiveTab} />;
+      case 4: return <Bienestar4 onTabChange={setActiveTab} />;
+      default: return <Bienestar1 onTabChange={setActiveTab} />;
     }
   };
 
@@ -31,38 +88,21 @@ export default function BienestarScreen() {
     <View style={styles.root}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.headerContainer}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={20} color="white" />
+        <Pressable onPress={handleBackPress} style={{ flexShrink: 0 }}>
+          <Animated.View style={[styles.backButton, { transform: [{ scale: backScale }] }]}>
+            <Ionicons name="arrow-back" size={20} color="white" />
+          </Animated.View>
         </Pressable>
-        
+
         <View style={styles.tabsContainer}>
-          <Pressable 
-            style={activeTab === 1 ? styles.activeTabButton : styles.inactiveTabButton} 
-            onPress={() => setActiveTab(1)}
-          >
-            <Text style={activeTab === 1 ? styles.activeTabText : styles.inactiveTabText}>Mono</Text>
-          </Pressable>
-          
-          <Pressable 
-            style={activeTab === 2 ? styles.activeTabButton : styles.inactiveTabButton} 
-            onPress={() => setActiveTab(2)}
-          >
-            <Text style={activeTab === 2 ? styles.activeTabText : styles.inactiveTabText}>Diario</Text>
-          </Pressable>
-
-          <Pressable 
-            style={activeTab === 3 ? styles.activeTabButton : styles.inactiveTabButton} 
-            onPress={() => setActiveTab(3)}
-          >
-            <Text style={activeTab === 3 ? styles.activeTabText : styles.inactiveTabText}>Sonidos</Text>
-          </Pressable>
-
-          <Pressable 
-            style={activeTab === 4 ? styles.activeTabButton : styles.inactiveTabButton} 
-            onPress={() => setActiveTab(4)}
-          >
-            <Text style={activeTab === 4 ? styles.activeTabText : styles.inactiveTabText}>Respira</Text>
-          </Pressable>
+          {TABS.map(tab => (
+            <AnimatedTab
+              key={tab.id}
+              label={tab.label}
+              isActive={activeTab === tab.id}
+              onPress={() => setActiveTab(tab.id)}
+            />
+          ))}
         </View>
       </View>
 
@@ -87,7 +127,7 @@ const styles = StyleSheet.create({
     paddingRight: 16,
     alignItems: 'center',
     gap: 12,
-    zIndex: 100, // Make sure it stays on top
+    zIndex: 100,
   },
   backButton: {
     flexDirection: 'row',
@@ -104,15 +144,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flex: 1,
   },
   activeTabButton: {
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: 'rgba(245, 158, 11, 1)', // Orange for Mono active
+    backgroundColor: 'rgba(245, 158, 11, 1)',
     shadowColor: 'rgba(245, 158, 11, 0.35)',
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
   },
   inactiveTabButton: {
     paddingHorizontal: 12,
