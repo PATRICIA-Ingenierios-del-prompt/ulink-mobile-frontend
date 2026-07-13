@@ -188,21 +188,21 @@ function FriendRow({ friend }: { friend: Friend }) {
       : "rgba(90, 90, 104, 1)";
   return (
     <View style={styles.friendRow}>
-      {/* Avatar */}
-      <View style={styles.friendAvatarWrap}>
+      {/* Avatar — tap to view profile */}
+      <Pressable onPress={() => router.push(`/user/${friend.id}`)} style={styles.friendAvatarWrap}>
         <View style={styles.friendAvatar}>
           <Text style={styles.friendInitials}>{friend.initials}</Text>
         </View>
         <StatusDot status={friend.status} />
-      </View>
+      </Pressable>
 
-      {/* Name & status */}
-      <View style={styles.friendInfo}>
+      {/* Name & status — tap to view profile */}
+      <Pressable style={styles.friendInfo} onPress={() => router.push(`/user/${friend.id}`)}>
         <Text style={styles.friendName}>{friend.name}</Text>
         <Text style={[styles.friendStatus, { color: labelColor }]}>
           {friend.statusLabel}
         </Text>
-      </View>
+      </Pressable>
 
       {/* Action buttons */}
       <View style={styles.friendActions}>
@@ -212,6 +212,7 @@ function FriendRow({ friend }: { friend: Friend }) {
             styles.actionIconBtnPrimary,
             pressed && { opacity: 0.7, transform: [{ scale: 0.92 }] },
           ]}
+          onPress={() => router.push(`/chat/${friend.id}`)}
         >
           <Ionicons name="chatbubble-ellipses" size={16} color="rgba(129, 140, 248, 1)" />
         </Pressable>
@@ -327,7 +328,7 @@ export default function ParchesScreen() {
     <SafeAreaView style={styles.root}>
       {/* ── Top bar: heart left | divider | avatar right ── */}
       <View style={styles.topBar}>
-        <Pressable style={styles.topHeart}>
+        <Pressable style={styles.topHeart} onPress={() => router.push("/bienestar")}>
           <Ionicons name="leaf-outline" size={24} color="rgba(143, 132, 224, 0.75)" />
         </Pressable>
 

@@ -6,6 +6,7 @@ import {
   Pressable,
   Animated,
   Dimensions,
+  PanResponder,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -70,26 +71,65 @@ export default function MatchingScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(0);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-
   const profile = MATCH_PROFILES[currentIndex % MATCH_PROFILES.length];
+  const pan = useRef(new Animated.ValueXY()).current;
+  const SWIPE_THRESHOLD = 120;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
+        useNativeDriver: false,
+      }),
+      onPanResponderRelease: (e, gesture) => {
+        if (gesture.dx > SWIPE_THRESHOLD) {
+          forceSwipe("right");
+        } else if (gesture.dx < -SWIPE_THRESHOLD) {
+          forceSwipe("left");
+        } else {
+          resetPosition();
+        }
+      },
+    })
+  ).current;
+
+  const forceSwipe = (direction: "left" | "right") => {
+    const x = direction === "right" ? SCREEN_WIDTH : -SCREEN_WIDTH;
+    Animated.timing(pan, {
+      toValue: { x, y: 0 },
+      duration: 250,
+      useNativeDriver: false,
+    }).start(() => onSwipeComplete(direction));
+  };
+
+  const onSwipeComplete = (direction: "left" | "right") => {
+    pan.setValue({ x: 0, y: 0 });
+    setCurrentIndex((i) => i + 1);
+  };
+
+  const resetPosition = () => {
+    Animated.spring(pan, {
+      toValue: { x: 0, y: 0 },
+      useNativeDriver: false,
+    }).start();
+  };
 
   const handleAction = (action: "like" | "dislike" | "star") => {
-    Animated.sequence([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 280,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    setTimeout(() => {
-      setCurrentIndex((i) => i + 1);
-    }, 200);
+    if (action === "like" || action === "star") {
+      forceSwipe("right");
+    } else {
+      forceSwipe("left");
+    }
+  };
+
+  const rotate = pan.x.interpolate({
+    inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
+    outputRange: ["-10deg", "0deg", "10deg"],
+    extrapolate: "clamp",
+  });
+
+  const cardStyle = {
+    transform: [{ translateX: pan.x }, { translateY: pan.y }, { rotate }],
   };
 
   return (
@@ -97,7 +137,7 @@ export default function MatchingScreen() {
 
       {/* ── Top bar: heart left | avatar right ── */}
       <View style={styles.topBar}>
-        <Pressable style={styles.topHeart}>
+        <Pressable style={styles.topHeart} onPress={() => router.push("/bienestar")}>
           <Ionicons name="leaf-outline" size={24} color="rgba(143, 132, 224, 0.75)" />
         </Pressable>
 
@@ -118,7 +158,7 @@ export default function MatchingScreen() {
       </View>
 
       {/* ── Swipe card ── */}
-      <Animated.View style={[styles.cardWrap, { opacity: fadeAnim }]}>
+      <Animated.View style={[styles.cardWrap, cardStyle]} {...panResponder.panHandlers}>
         <View style={styles.card}>
 
           {/* Full-bleed photo area with gradient background */}

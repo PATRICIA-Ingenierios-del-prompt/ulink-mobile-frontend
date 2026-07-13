@@ -52,19 +52,27 @@ export default function ParcheScreen() {
           </Pressable>
 
           <Pressable
-            style={styles.tabButton}
+            style={[styles.tabButton, activeTab === "general" && styles.tabButtonActive]}
             onPress={() => setActiveTab("general")}
           >
-            <Ionicons name="chatbubbles-outline" size={14} color="rgba(90, 90, 104, 1)" />
-            <Text style={styles.tabText}>general</Text>
+            <Ionicons
+              name="chatbubbles-outline"
+              size={14}
+              color={activeTab === "general" ? "rgba(129, 140, 248, 1)" : "rgba(90, 90, 104, 1)"}
+            />
+            <Text style={[styles.tabText, activeTab === "general" && styles.tabTextActive]}>general</Text>
           </Pressable>
 
           <Pressable
-            style={styles.tabButton}
+            style={[styles.tabButton, activeTab === "apuntes" && styles.tabButtonActive]}
             onPress={() => setActiveTab("apuntes")}
           >
-            <Ionicons name="document-text-outline" size={14} color="rgba(90, 90, 104, 1)" />
-            <Text style={styles.tabText}>apuntes</Text>
+            <Ionicons
+              name="document-text-outline"
+              size={14}
+              color={activeTab === "apuntes" ? "rgba(129, 140, 248, 1)" : "rgba(90, 90, 104, 1)"}
+            />
+            <Text style={[styles.tabText, activeTab === "apuntes" && styles.tabTextActive]}>apuntes</Text>
           </Pressable>
 
           <Pressable
@@ -84,20 +92,16 @@ export default function ParcheScreen() {
       </View>
 
       {/* ── Content Area ── */}
-      {activeTab === "anuncios" ? (
-        <ChatView />
-      ) : activeTab === "juegos" ? (
+      {activeTab === "juegos" ? (
         <GamesView />
       ) : (
-        <View style={styles.placeholderView}>
-          <Text style={styles.placeholderText}>Comming soon: {activeTab}</Text>
-        </View>
+        <ChatView activeTab={activeTab} />
       )}
     </SafeAreaView>
   );
 }
 
-function ChatView() {
+function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
   return (
     <View style={styles.chatRoot}>
       <ScrollView
@@ -134,7 +138,7 @@ function ChatView() {
           </Pressable>
           <TextInput
             style={styles.chatInput}
-            placeholder="Escribe algo en #anuncios…"
+            placeholder={`Escribe algo en #${activeTab}…`}
             placeholderTextColor="rgba(90, 90, 104, 1)"
           />
           <View style={styles.chatInputActions}>

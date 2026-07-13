@@ -174,7 +174,7 @@ export default function EventsScreen() {
     <SafeAreaView style={styles.root}>
       {/* ── Top bar: calendar left | divider | avatar right ── */}
       <View style={styles.topBar}>
-        <Pressable style={styles.topHeart}>
+        <Pressable style={styles.topHeart} onPress={() => router.push("/bienestar")}>
           <Ionicons name="leaf-outline" size={24} color="rgba(143, 132, 224, 0.75)" />
         </Pressable>
 

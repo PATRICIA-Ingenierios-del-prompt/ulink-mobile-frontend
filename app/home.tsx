@@ -150,10 +150,12 @@ function ActivityRow({
   item,
   isLast,
   onPress,
+  onAvatarPress,
 }: {
   item: (typeof ACTIVITY_DATA)[0];
   isLast: boolean;
   onPress?: () => void;
+  onAvatarPress?: () => void;
 }) {
   return (
     <Pressable
@@ -177,19 +179,21 @@ function ActivityRow({
       </View>
 
       {/* Avatar */}
-      <View
-        style={[
-          styles.avatar,
-          {
-            borderColor: item.colorBorder,
-            backgroundColor: item.colorBg,
-          },
-        ]}
-      >
-        <Text style={[styles.avatarText, { color: item.color }]}>
-          {item.initials}
-        </Text>
-      </View>
+      <Pressable onPress={onAvatarPress}>
+        <View
+          style={[
+            styles.avatar,
+            {
+              borderColor: item.colorBorder,
+              backgroundColor: item.colorBg,
+            },
+          ]}
+        >
+          <Text style={[styles.avatarText, { color: item.color }]}>
+            {item.initials}
+          </Text>
+        </View>
+      </Pressable>
 
       {/* Info */}
       <View style={styles.activityInfo}>
@@ -314,7 +318,8 @@ export default function HomeScreen() {
               key={item.initials}
               item={item}
               isLast={index === displayData.length - 1}
-              onPress={() => router.push(activeFilter === "servers" ? "/(tabs)/parche" : "/call")}
+              onPress={() => router.push(activeFilter === "servers" ? "/(tabs)/parche" : `/chat/${item.name.replace(' ', '_')}`)}
+              onAvatarPress={() => router.push(activeFilter === "servers" ? "/(tabs)/parche" : `/user/${item.name.replace(' ', '_')}`)}
             />
           ))}
         </View>
