@@ -1,166 +1,143 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Pressable,
+  Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTranslation } from "@/hooks/useTranslation";
 
-// ─── Data ────────────────────────────────────────────────────────────────────
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-interface Event {
+// ─── Data ─────────────────────────────────────────────────────────────────────
+
+type Category = "Todos" | "Académico" | "Social" | "Bienestar" | "Deportivo" | "Cultural";
+
+const CATEGORIES: Category[] = ["Todos", "Académico", "Social", "Bienestar", "Deportivo", "Cultural"];
+
+interface MapPin {
   id: string;
-  title: string;
-  date: string;
-  time: string;
-  location: string;
-  category: string;
-  accentColor: string;
-  attendees: number;
-  going: boolean;
+  emoji: string;
+  label: string;
+  color: string;
+  borderColor: string;
+  bgColor: string;
+  top: number;
+  left: number;
 }
 
-const EVENTS: Event[] = [
+const MAP_PINS: MapPin[] = [
   {
-    id: "e1",
-    title: "Hackathon ECI 2026",
-    date: "Sáb 12 Jul",
-    time: "8:00 AM",
-    location: "Salón Principal",
-    category: "Tecnología",
-    accentColor: "rgba(99, 102, 241, 1)",
-    attendees: 148,
-    going: true,
+    id: "p1",
+    emoji: "🎓",
+    label: "Auditorio Alberto",
+    color: "rgba(59, 140, 245, 1)",
+    borderColor: "rgba(59, 140, 245, 0.35)",
+    bgColor: "rgba(59, 140, 245, 0.12)",
+    top: 65,
+    left: 30,
   },
   {
-    id: "e2",
-    title: "Torneo de Fútbol",
-    date: "Dom 13 Jul",
-    time: "10:00 AM",
-    location: "Cancha Norte",
-    category: "Deportes",
-    accentColor: "rgba(35, 165, 89, 1)",
-    attendees: 64,
-    going: false,
+    id: "p2",
+    emoji: "🎮",
+    label: "Sala de Juegos",
+    color: "rgba(35, 165, 89, 1)",
+    borderColor: "rgba(35, 165, 89, 0.35)",
+    bgColor: "rgba(35, 165, 89, 0.12)",
+    top: 120,
+    left: 170,
   },
   {
-    id: "e3",
-    title: "Charla: IA en la Ingeniería",
-    date: "Mar 15 Jul",
-    time: "4:00 PM",
-    location: "Auditorio B",
-    category: "Académico",
-    accentColor: "rgba(240, 178, 50, 1)",
-    attendees: 92,
-    going: true,
+    id: "p3",
+    emoji: "🏢",
+    label: "Sala de Reuniones",
+    color: "rgba(129, 140, 248, 1)",
+    borderColor: "rgba(129, 140, 248, 0.35)",
+    bgColor: "rgba(129, 140, 248, 0.12)",
+    top: 185,
+    left: 60,
   },
   {
-    id: "e4",
-    title: "Jam Session Campus",
-    date: "Vie 18 Jul",
-    time: "6:00 PM",
-    location: "Plaza Central",
-    category: "Arte",
-    accentColor: "rgba(168, 85, 247, 1)",
-    attendees: 37,
-    going: false,
+    id: "p4",
+    emoji: "🌿",
+    label: "Jardín Central",
+    color: "rgba(240, 178, 50, 1)",
+    borderColor: "rgba(240, 178, 50, 0.35)",
+    bgColor: "rgba(240, 178, 50, 0.12)",
+    top: 240,
+    left: 210,
   },
   {
-    id: "e5",
-    title: "Feria de Emprendimiento",
-    date: "Sáb 19 Jul",
-    time: "9:00 AM",
-    location: "Lobby Principal",
-    category: "Negocios",
-    accentColor: "rgba(236, 72, 153, 1)",
-    attendees: 210,
-    going: false,
+    id: "p5",
+    emoji: "🏛️",
+    label: "Aula Máxima",
+    color: "rgba(251, 146, 60, 1)",
+    borderColor: "rgba(251, 146, 60, 0.35)",
+    bgColor: "rgba(251, 146, 60, 0.12)",
+    top: 310,
+    left: 100,
   },
 ];
 
-// ─── Event card ───────────────────────────────────────────────────────────────
+// Campus map "buildings" as abstract rectangles
+const BUILDINGS = [
+  { top: 40, left: 15, w: 90, h: 50, opacity: 0.07 },
+  { top: 40, left: 125, w: 60, h: 35, opacity: 0.06 },
+  { top: 40, left: 205, w: 110, h: 45, opacity: 0.08 },
+  { top: 110, left: 15, w: 70, h: 60, opacity: 0.06 },
+  { top: 110, left: 105, w: 85, h: 55, opacity: 0.07 },
+  { top: 110, left: 210, w: 100, h: 40, opacity: 0.05 },
+  { top: 190, left: 15, w: 55, h: 50, opacity: 0.07 },
+  { top: 190, left: 90, w: 95, h: 65, opacity: 0.06 },
+  { top: 190, left: 205, w: 105, h: 55, opacity: 0.08 },
+  { top: 270, left: 15, w: 75, h: 60, opacity: 0.06 },
+  { top: 270, left: 110, w: 60, h: 45, opacity: 0.07 },
+  { top: 270, left: 190, w: 120, h: 50, opacity: 0.05 },
+  { top: 350, left: 15, w: 295, h: 35, opacity: 0.05 }, // Paths / roads
+  { top: 160, left: 15, w: 295, h: 12, opacity: 0.04 }, // Horizontal road
+  { top: 40, left: 100, w: 12, h: 330, opacity: 0.04 }, // Vertical road
+  { top: 40, left: 200, w: 10, h: 330, opacity: 0.04 }, // Vertical road 2
+];
 
-function EventCard({ event }: { event: Event }) {
-  const accentFaint = event.accentColor.replace("1)", "0.12)");
-  const accentBorder = event.accentColor.replace("1)", "0.28)");
+// ─── Pin component ────────────────────────────────────────────────────────────
 
+function MapPinMarker({ pin, onPress }: { pin: MapPin; onPress: () => void }) {
   return (
     <Pressable
-      style={({ pressed }) => [
-        styles.eventCard,
-        { borderColor: accentBorder },
-        pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+      style={[styles.pinWrap, { top: pin.top, left: pin.left }]}
+      onPress={onPress}
+    >
+      {/* Circle marker */}
+      <View style={[styles.pinDot, { backgroundColor: pin.color, shadowColor: pin.color }]} />
+      {/* Tail */}
+      <View style={[styles.pinTail, { backgroundColor: pin.color }]} />
+    </Pressable>
+  );
+}
+
+function PinLabel({ pin }: { pin: MapPin }) {
+  return (
+    <View
+      style={[
+        styles.pinLabel,
+        {
+          borderColor: pin.borderColor,
+          backgroundColor: pin.bgColor,
+          top: pin.top - 6,
+          left: pin.left + 34,
+        },
       ]}
     >
-      {/* Left accent bar */}
-      <View style={[styles.eventAccentBar, { backgroundColor: event.accentColor }]} />
-
-      {/* Content */}
-      <View style={styles.eventContent}>
-        {/* Category chip */}
-        <View style={[styles.eventCategoryChip, { backgroundColor: accentFaint, borderColor: accentBorder }]}>
-          <Text style={[styles.eventCategoryText, { color: event.accentColor }]}>
-            {event.category}
-          </Text>
-        </View>
-
-        {/* Title */}
-        <Text style={styles.eventTitle} numberOfLines={1}>
-          {event.title}
-        </Text>
-
-        {/* Meta row */}
-        <View style={styles.eventMeta}>
-          <View style={styles.eventMetaItem}>
-            <Ionicons name="calendar-outline" size={12} color="rgba(143, 132, 224, 0.7)" />
-            <Text style={styles.eventMetaText}>{event.date}</Text>
-          </View>
-          <View style={styles.eventMetaSep} />
-          <View style={styles.eventMetaItem}>
-            <Ionicons name="time-outline" size={12} color="rgba(143, 132, 224, 0.7)" />
-            <Text style={styles.eventMetaText}>{event.time}</Text>
-          </View>
-          <View style={styles.eventMetaSep} />
-          <View style={styles.eventMetaItem}>
-            <Ionicons name="location-outline" size={12} color="rgba(143, 132, 224, 0.7)" />
-            <Text style={styles.eventMetaText} numberOfLines={1}>{event.location}</Text>
-          </View>
-        </View>
-
-        {/* Attendees + Going btn */}
-        <View style={styles.eventFooter}>
-          <View style={styles.attendeesRow}>
-            <Ionicons name="people-outline" size={13} color="rgba(180, 180, 210, 0.5)" />
-            <Text style={styles.attendeesText}>{event.attendees} asistentes</Text>
-          </View>
-          <Pressable
-            style={({ pressed }) => [
-              styles.goingBtn,
-              event.going
-                ? [styles.goingBtnActive, { backgroundColor: accentFaint, borderColor: accentBorder }]
-                : styles.goingBtnInactive,
-              pressed && { opacity: 0.75 },
-            ]}
-          >
-            <Text
-              style={[
-                styles.goingBtnText,
-                event.going
-                  ? { color: event.accentColor }
-                  : styles.goingBtnTextInactive,
-              ]}
-            >
-              {event.going ? "✓ Voy" : "Ir"}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-    </Pressable>
+      <Text style={styles.pinLabelEmoji}>{pin.emoji}</Text>
+      <Text style={[styles.pinLabelText, { color: pin.color }]} numberOfLines={1}>
+        {pin.label}
+      </Text>
+    </View>
   );
 }
 
@@ -169,48 +146,143 @@ function EventCard({ event }: { event: Event }) {
 export default function EventsScreen() {
   const router = useRouter();
   const { t } = useTranslation();
+  const [activeCategory, setActiveCategory] = useState<Category>("Todos");
+  const [selectedPin, setSelectedPin] = useState<string | null>(null);
+
+  const MAP_WIDTH = SCREEN_WIDTH - 32;
 
   return (
     <SafeAreaView style={styles.root}>
-      {/* ── Top bar: calendar left | divider | avatar right ── */}
+      {/* ── Top bar: leaf | divider | avatar ── */}
       <View style={styles.topBar}>
         <Pressable style={styles.topHeart} onPress={() => router.push("/bienestar")}>
           <Ionicons name="leaf-outline" size={24} color="rgba(143, 132, 224, 0.75)" />
         </Pressable>
-
-        {/* Center divider line */}
         <View style={styles.topCenter}>
           <View style={styles.topDividerLine} />
         </View>
-
-        {/* User avatar top-right */}
         <Pressable style={styles.topAvatar} onPress={() => router.push("/profile")}>
           <Text style={styles.topAvatarText}>{t("you")}</Text>
         </Pressable>
       </View>
 
-      {/* ── Page title ── */}
-      <View style={styles.titleSection}>
-        <Text style={styles.mainTitle}>Eventos</Text>
+      {/* ── Header: title + Crear button ── */}
+      <View style={styles.headerRow}>
+        <View style={styles.headerTextWrap}>
+          <Text style={styles.mainTitle}>Eventos ECI</Text>
+          <Text style={styles.subtitle}>Descubre y únete a lo que pasa en tu campus</Text>
+        </View>
+        <Pressable
+          style={({ pressed }) => [styles.crearBtn, pressed && { opacity: 0.8, transform: [{ scale: 0.96 }] }]}
+        >
+          <Ionicons name="add" size={16} color="rgba(255,255,255,1)" />
+          <Text style={styles.crearBtnText}>Crear</Text>
+        </Pressable>
       </View>
 
-      {/* ── Events list ── */}
+      {/* ── Category filter pills ── */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.categoryScrollView}
+        contentContainerStyle={styles.categoryRow}
+      >
+        {CATEGORIES.map((cat) => (
+          <Pressable
+            key={cat}
+            style={[
+              styles.categoryPill,
+              activeCategory === cat ? styles.categoryPillActive : styles.categoryPillInactive,
+            ]}
+            onPress={() => setActiveCategory(cat)}
+          >
+            <Text
+              style={[
+                styles.categoryPillText,
+                activeCategory === cat ? styles.categoryPillTextActive : styles.categoryPillTextInactive,
+              ]}
+            >
+              {cat}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      {/* ── Campus map ── */}
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.sectionLabel}>PRÓXIMOS</Text>
-        <View style={styles.eventList}>
-          {EVENTS.map((event) => (
-            <EventCard key={event.id} event={event} />
-          ))}
+        <View style={[styles.mapCard, { width: MAP_WIDTH }]}>
+          {/* Abstract campus grid background */}
+          <View style={styles.mapInner}>
+            {/* Road lines */}
+            <View style={styles.roadH} />
+            <View style={styles.roadH2} />
+            <View style={styles.roadV} />
+            <View style={styles.roadV2} />
+
+            {/* Building blocks */}
+            {BUILDINGS.map((b, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.building,
+                  {
+                    top: b.top,
+                    left: b.left,
+                    width: b.w,
+                    height: b.h,
+                    backgroundColor: `rgba(255,255,255,${b.opacity})`,
+                  },
+                ]}
+              />
+            ))}
+
+            {/* Map pins + labels */}
+            {MAP_PINS.map((pin) => (
+              <React.Fragment key={pin.id}>
+                <MapPinMarker
+                  pin={pin}
+                  onPress={() => setSelectedPin(selectedPin === pin.id ? null : pin.id)}
+                />
+                <PinLabel pin={pin} />
+              </React.Fragment>
+            ))}
+
+            {/* "ECI" watermark */}
+            <Text style={styles.mapWatermark}>ECI</Text>
+          </View>
         </View>
 
-        {/* Bottom padding for nav bar */}
-        <View style={{ height: 110 }} />
-      </ScrollView>
+        {/* Hint text */}
+        <Text style={styles.mapHint}>
+          5 eventos en el mapa · toca un pin para ver el detalle
+        </Text>
 
+        {/* Selected pin detail card */}
+        {selectedPin && (() => {
+          const pin = MAP_PINS.find(p => p.id === selectedPin)!;
+          return (
+            <View style={[styles.pinDetailCard, { borderColor: pin.borderColor, backgroundColor: pin.bgColor }]}>
+              <View style={styles.pinDetailLeft}>
+                <Text style={styles.pinDetailEmoji}>{pin.emoji}</Text>
+                <View>
+                  <Text style={[styles.pinDetailLabel, { color: pin.color }]}>{pin.label}</Text>
+                  <Text style={styles.pinDetailSub}>1 evento activo</Text>
+                </View>
+              </View>
+              <Pressable style={[styles.pinDetailBtn, { borderColor: pin.borderColor }]}>
+                <Text style={[styles.pinDetailBtnText, { color: pin.color }]}>Ver</Text>
+              </Pressable>
+            </View>
+          );
+        })()}
+
+        {/* Bottom padding for nav bar */}
+        <View style={{ height: 120 }} />
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -266,18 +338,81 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  // ── Page title ──
-  titleSection: {
-    paddingHorizontal: 22,
-    paddingTop: 2,
+  // ── Header ──
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 12,
   },
+  headerTextWrap: {
+    flex: 1,
+    marginRight: 12,
+  },
   mainTitle: {
-    color: "rgba(236, 237, 248, 1)",
-    fontSize: 26,
+    color: "rgba(255, 255, 255, 1)",
+    fontSize: 20,
     fontWeight: "700",
-    letterSpacing: -0.6,
-    lineHeight: 34,
+    letterSpacing: -0.5,
+    lineHeight: 28,
+  },
+  subtitle: {
+    color: "rgba(90, 90, 104, 1)",
+    fontSize: 11,
+    fontWeight: "400",
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  crearBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: "rgba(99, 102, 241, 1)",
+  },
+  crearBtnText: {
+    color: "rgba(255, 255, 255, 1)",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  // ── Category pills ──
+  categoryScrollView: {
+    flexGrow: 0,
+  },
+  categoryRow: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  categoryPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+  },
+  categoryPillActive: {
+    backgroundColor: "rgba(99, 102, 241, 1)",
+  },
+  categoryPillInactive: {
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+  },
+  categoryPillText: {
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 18,
+  },
+  categoryPillTextActive: {
+    color: "rgba(255, 255, 255, 1)",
+  },
+  categoryPillTextInactive: {
+    color: "rgba(90, 90, 104, 1)",
   },
 
   // ── Scroll ──
@@ -286,122 +421,156 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 4,
+    alignItems: "center",
   },
 
-  // ── Section label ──
-  sectionLabel: {
-    color: "rgba(143, 132, 224, 0.55)",
-    fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 0.7,
-    textTransform: "uppercase",
-    marginBottom: 10,
-    marginLeft: 4,
-  },
-
-  // ── Event list ──
-  eventList: {
-    gap: 12,
-  },
-
-  // ── Event card ──
-  eventCard: {
-    flexDirection: "row",
+  // ── Campus map card ──
+  mapCard: {
     borderRadius: 20,
     borderWidth: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.025)",
+    borderColor: "rgba(255, 255, 255, 0.07)",
     overflow: "hidden",
+    height: 400,
   },
-  eventAccentBar: {
-    width: 4,
-    borderRadius: 2,
-    margin: 12,
-    marginRight: 0,
-    flexShrink: 0,
-    borderTopLeftRadius: 2,
-    borderBottomLeftRadius: 2,
-  },
-  eventContent: {
+  mapInner: {
     flex: 1,
-    padding: 14,
-    paddingLeft: 12,
+    backgroundColor: "rgba(14, 17, 35, 1)",
+    position: "relative",
   },
-  eventCategoryChip: {
-    alignSelf: "flex-start",
+  // Roads
+  roadH: {
+    position: "absolute",
+    top: 158,
+    left: 0,
+    right: 0,
+    height: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+  },
+  roadH2: {
+    position: "absolute",
+    top: 270,
+    left: 0,
+    right: 0,
+    height: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+  },
+  roadV: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 105,
+    width: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+  },
+  roadV2: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 205,
+    width: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+  },
+  building: {
+    position: "absolute",
+    borderRadius: 4,
+  },
+  // Pin
+  pinWrap: {
+    position: "absolute",
+    flexDirection: "column",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  pinDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
+  },
+  pinTail: {
+    width: 2,
+    height: 6,
+  },
+  pinLabel: {
+    position: "absolute",
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: 999,
     borderWidth: 1,
-    paddingVertical: 2,
-    paddingHorizontal: 10,
-    marginBottom: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    gap: 3,
+    zIndex: 9,
   },
-  eventCategoryText: {
+  pinLabelEmoji: {
     fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
   },
-  eventTitle: {
-    color: "rgba(255, 255, 255, 1)",
-    fontSize: 15,
-    fontWeight: "700",
-    letterSpacing: -0.3,
-    marginBottom: 8,
+  pinLabelText: {
+    fontSize: 10,
+    fontWeight: "500",
+    lineHeight: 15,
   },
-  eventMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 10,
+  // Map watermark
+  mapWatermark: {
+    position: "absolute",
+    bottom: 12,
+    right: 16,
+    fontSize: 32,
+    fontWeight: "900",
+    color: "rgba(255, 255, 255, 0.04)",
+    letterSpacing: 4,
   },
-  eventMetaItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  eventMetaText: {
-    color: "rgba(180, 180, 210, 0.65)",
+
+  // ── Hint ──
+  mapHint: {
+    color: "rgba(58, 58, 68, 1)",
     fontSize: 11,
     fontWeight: "400",
+    textAlign: "center",
+    marginTop: 10,
+    marginBottom: 16,
   },
-  eventMetaSep: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: "rgba(143, 132, 224, 0.25)",
-  },
-  eventFooter: {
+
+  // ── Pin detail card ──
+  pinDetailCard: {
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 8,
   },
-  attendeesRow: {
+  pinDetailLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 12,
   },
-  attendeesText: {
-    color: "rgba(180, 180, 210, 0.45)",
-    fontSize: 11,
-    fontWeight: "400",
+  pinDetailEmoji: {
+    fontSize: 22,
   },
-  goingBtn: {
-    paddingVertical: 5,
-    paddingHorizontal: 16,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  goingBtnActive: {},
-  goingBtnInactive: {
-    borderColor: "rgba(255, 255, 255, 0.10)",
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-  },
-  goingBtnText: {
-    fontSize: 12,
+  pinDetailLabel: {
+    fontSize: 14,
     fontWeight: "600",
   },
-  goingBtnTextInactive: {
-    color: "rgba(180, 180, 210, 0.55)",
+  pinDetailSub: {
+    fontSize: 11,
+    color: "rgba(90, 90, 104, 1)",
+    marginTop: 2,
+  },
+  pinDetailBtn: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 5,
+    paddingHorizontal: 18,
+  },
+  pinDetailBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
   },
 });
