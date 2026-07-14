@@ -1,9 +1,99 @@
 import { Image } from "expo-image";
+import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { useAuth } from "../hooks/useAuth";
+import { authService, getMicrosoftAuthUrl, MS_REDIRECT_URI } from "../services/authService";
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function WelcomeLoginScreen() {
   const router = useRouter();
+  const { login } = useAuth();
+  const [loading, setLoading] = useState(false);
+
+  // ── OTP flow state ──
+  const [otpStep, setOtpStep] = useState<"none" | "email" | "code">("none");
+  const [otpEmail, setOtpEmail] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+
+  // ── Microsoft OAuth ──
+
+  const handleMicrosoftLogin = useCallback(async () => {
+    try {
+      setLoading(true);
+      const authUrl = getMicrosoftAuthUrl();
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, MS_REDIRECT_URI);
+
+      if (result.type === "success" && result.url) {
+        const url = new URL(result.url);
+        const code = url.searchParams.get("code");
+
+        if (code) {
+          const tokens = await authService.loginMicrosoft(code);
+          await login(tokens);
+          router.replace("/(tabs)/home");
+        } else {
+          Alert.alert("Error", "No se recibió el código de autenticación");
+        }
+      }
+    } catch (err: unknown) {
+      console.log("[AUTH ERROR]", JSON.stringify(err, null, 2));
+      let message = "Error al iniciar sesión";
+      if (err && typeof err === "object" && "response" in err) {
+        const axiosErr = err as { response?: { status?: number; data?: unknown } };
+        if (axiosErr.response) {
+          message = `Error ${axiosErr.response.status}: ${JSON.stringify(axiosErr.response.data)}`;
+        }
+      } else if (err instanceof Error) {
+        message = err.message;
+      }
+      Alert.alert("Auth Error", message);
+    } finally {
+      setLoading(false);
+    }
+  }, [login, router]);
+
+  // ── OTP handlers ──
+
+  const handleRequestOtp = useCallback(async () => {
+    if (!otpEmail.trim()) return;
+    try {
+      setLoading(true);
+      await authService.requestOtp(otpEmail.trim());
+      setOtpStep("code");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error al enviar código";
+      Alert.alert("Error", message);
+    } finally {
+      setLoading(false);
+    }
+  }, [otpEmail]);
+
+  const handleVerifyOtp = useCallback(async () => {
+    if (!otpCode.trim()) return;
+    try {
+      setLoading(true);
+      const tokens = await authService.verifyOtp(otpEmail.trim(), otpCode.trim());
+      await login(tokens);
+      router.replace("/(tabs)/home");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Código inválido";
+      Alert.alert("Error", message);
+    } finally {
+      setLoading(false);
+    }
+  }, [otpEmail, otpCode, login, router]);
 
   return (
     <SafeAreaView style={styles.root}>
@@ -13,14 +103,99 @@ export default function WelcomeLoginScreen() {
           <Text style={styles.welcomeTitle}>Welcome to U·link</Text>
           <Text style={styles.subtitle}>Sign in to continue to your account</Text>
 
-          <Pressable style={styles.button} onPress={() => router.replace("/(tabs)/home")}>
-            <Image
-              source={require("../assets/images/microsoft.png")}
-              contentFit="contain"
-              style={styles.microsoftIcon}
-            />
-            <Text style={styles.signInButtonText}>Sign in with Microsoft</Text>
-          </Pressable>
+          {otpStep === "none" ? (
+            <>
+              {/* Microsoft button */}
+              <Pressable
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleMicrosoftLogin}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="rgba(10, 10, 12, 1)" size="small" />
+                ) : (
+                  <>
+                    <Image
+                      source={require("../assets/images/microsoft.png")}
+                      contentFit="contain"
+                      style={styles.microsoftIcon}
+                    />
+                    <Text style={styles.signInButtonText}>Sign in with Microsoft</Text>
+                  </>
+                )}
+              </Pressable>
+
+              {/* OTP alternative */}
+              <Pressable
+                style={styles.otpLink}
+                onPress={() => setOtpStep("email")}
+              >
+                <Text style={styles.otpLinkText}>Iniciar con código de correo</Text>
+              </Pressable>
+            </>
+          ) : otpStep === "email" ? (
+            <>
+              <TextInput
+                style={styles.input}
+                placeholder="tu@email.escuelaing.edu.co"
+                placeholderTextColor="rgba(90, 90, 104, 1)"
+                value={otpEmail}
+                onChangeText={setOtpEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+              />
+              <Pressable
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleRequestOtp}
+                disabled={loading || !otpEmail.trim()}
+              >
+                {loading ? (
+                  <ActivityIndicator color="rgba(10, 10, 12, 1)" size="small" />
+                ) : (
+                  <Text style={styles.signInButtonText}>Enviar código</Text>
+                )}
+              </Pressable>
+              <Pressable style={styles.otpLink} onPress={() => setOtpStep("none")}>
+                <Text style={styles.otpLinkText}>Volver</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Text style={styles.otpHint}>
+                Código enviado a {otpEmail}
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Código de 6 dígitos"
+                placeholderTextColor="rgba(90, 90, 104, 1)"
+                value={otpCode}
+                onChangeText={setOtpCode}
+                keyboardType="number-pad"
+                maxLength={6}
+              />
+              <Pressable
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleVerifyOtp}
+                disabled={loading || otpCode.length < 6}
+              >
+                {loading ? (
+                  <ActivityIndicator color="rgba(10, 10, 12, 1)" size="small" />
+                ) : (
+                  <Text style={styles.signInButtonText}>Verificar</Text>
+                )}
+              </Pressable>
+              <Pressable
+                style={styles.otpLink}
+                onPress={() => {
+                  setOtpStep("email");
+                  setOtpCode("");
+                }}
+              >
+                <Text style={styles.otpLinkText}>Reenviar código</Text>
+              </Pressable>
+            </>
+          )}
 
           <Text style={styles.termsText}>
             By continuing you agree to our Terms and Privacy Policy
@@ -105,6 +280,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: "rgba(240, 240, 242, 1)",
   },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
   microsoftIcon: {
     width: 22,
     height: 22,
@@ -115,6 +293,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     lineHeight: 20,
+  },
+  otpLink: {
+    marginTop: 16,
+  },
+  otpLinkText: {
+    color: "rgba(129, 140, 248, 1)",
+    fontSize: 13,
+    fontWeight: "500",
+    textDecorationLine: "underline",
+  },
+  input: {
+    width: "100%",
+    maxWidth: 319,
+    height: 52,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    color: "rgba(255, 255, 255, 1)",
+    fontSize: 15,
+    marginBottom: 16,
+  },
+  otpHint: {
+    color: "rgba(90, 90, 104, 1)",
+    fontSize: 12,
+    marginBottom: 12,
+    textAlign: "center",
   },
   termsText: {
     marginTop: 32,
