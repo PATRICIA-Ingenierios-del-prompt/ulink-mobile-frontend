@@ -1,22 +1,26 @@
 import React, { useState, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, PanResponder, Dimensions } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, PanResponder, Dimensions, KeyboardAvoidingView, Platform, Alert, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Path } from "react-native-svg";
+import { ParquesBoard } from "../../components/parques/ParquesBoard";
 
 type SubTab = "anuncios" | "general" | "apuntes" | "juegos";
+type PanelView = "miembros" | "ajustes" | null;
 
 export default function ParcheScreen() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<SubTab>("anuncios");
+  const [panel, setPanel] = useState<PanelView>(null);
+  const [showMenu, setShowMenu] = useState(false);
 
   return (
     <SafeAreaView style={styles.root}>
       {/* ── Top Header ── */}
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Pressable style={styles.backButton} onPress={() => router.navigate("/(tabs)/parches")}>
             <Ionicons name="chevron-back" size={24} color="rgba(255, 255, 255, 0.8)" />
           </Pressable>
           <View style={styles.parcheIconBox}>
@@ -30,9 +34,33 @@ export default function ParcheScreen() {
             <Pressable style={styles.actionButton}>
               <Ionicons name="search" size={20} color="rgba(255, 255, 255, 0.6)" />
             </Pressable>
-            <Pressable style={styles.actionButton}>
-              <Ionicons name="ellipsis-vertical" size={20} color="rgba(255, 255, 255, 0.6)" />
-            </Pressable>
+            <View>
+              <Pressable style={styles.actionButton} onPress={() => setShowMenu((m) => !m)}>
+                <Ionicons name="ellipsis-vertical" size={20} color="rgba(255, 255, 255, 0.6)" />
+              </Pressable>
+              {showMenu && (
+                <>
+                  <Pressable style={styles.menuBackdrop} onPress={() => setShowMenu(false)} />
+                  <View style={styles.dropdownMenu}>
+                    <Pressable
+                      style={({ pressed }) => [styles.dropdownItem, pressed && { backgroundColor: "rgba(255, 255, 255, 0.06)" }]}
+                      onPress={() => { setShowMenu(false); setPanel("miembros"); }}
+                    >
+                      <Ionicons name="people" size={16} color="rgba(143, 132, 224, 0.8)" />
+                      <Text style={styles.dropdownText}>Miembros</Text>
+                    </Pressable>
+                    <View style={styles.dropdownDivider} />
+                    <Pressable
+                      style={({ pressed }) => [styles.dropdownItem, pressed && { backgroundColor: "rgba(255, 255, 255, 0.06)" }]}
+                      onPress={() => { setShowMenu(false); setPanel("ajustes"); }}
+                    >
+                      <Ionicons name="settings" size={16} color="rgba(143, 132, 224, 0.8)" />
+                      <Text style={styles.dropdownText}>Ajustes</Text>
+                    </Pressable>
+                  </View>
+                </>
+              )}
+            </View>
           </View>
         </View>
 
@@ -98,61 +126,308 @@ export default function ParcheScreen() {
       ) : (
         <ChatView activeTab={activeTab} />
       )}
+
+      {/* ── Panel Overlay (Miembros / Ajustes) ── */}
+      {panel && (
+        <View style={styles.panelOverlay}>
+          <View style={styles.panelContainer}>
+            <View style={styles.panelHeader}>
+              <Pressable style={styles.panelBackBtn} onPress={() => setPanel(null)}>
+                <Ionicons name="chevron-back" size={22} color="rgba(255, 255, 255, 0.8)" />
+              </Pressable>
+              <Text style={styles.panelTitle}>
+                {panel === "miembros" ? "Miembros" : "Ajustes del parche"}
+              </Text>
+              <Pressable style={styles.panelCloseBtn} onPress={() => setPanel(null)}>
+                <Ionicons name="close" size={20} color="rgba(255, 255, 255, 0.6)" />
+              </Pressable>
+            </View>
+            {panel === "miembros" ? <MembersView /> : <SettingsView />}
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
 function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
-  return (
-    <View style={styles.chatRoot}>
-      <ScrollView
-        style={styles.chatScroll}
-        contentContainerStyle={styles.chatScrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.messageRow}>
-          {/* Avatar Area */}
-          <View style={styles.messageAvatarBox}>
-            <View style={styles.messageAvatar}>
-              <Text style={styles.messageAvatarText}>VT</Text>
-            </View>
-          </View>
-          
-          {/* Content Area */}
-          <View style={styles.messageContentWrap}>
-            <Text style={styles.messageSender}>Valeria T.</Text>
-            <View style={styles.messageBubble}>
-              <Text style={styles.messageText}>
-                📌 Parcial esta semana — viernes 8am, aula 301. ¡Suerte a todos!
-              </Text>
-            </View>
-            <Text style={styles.messageTime}>9:00 AM</Text>
-          </View>
-        </View>
-      </ScrollView>
+  const [text, setText] = useState("");
+  const [messages, setMessages] = useState<Array<{ id: string; sender: string; initials: string; text: string; time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string }>>([
+    {
+      id: "m1",
+      sender: "Valeria T.",
+      initials: "VT",
+      text: "📌 Parcial esta semana — viernes 8am, aula 301. ¡Suerte a todos!",
+      time: "9:00 AM",
+      isMe: false,
+    }
+  ]);
+  const scrollRef = useRef<ScrollView>(null);
 
-      {/* ── Chat Input ── */}
-      <View style={styles.chatInputContainer}>
-        <View style={styles.chatInputWrap}>
-          <Pressable style={styles.chatAttachBtn}>
-            <Ionicons name="add" size={24} color="rgba(255, 255, 255, 0.6)" />
-          </Pressable>
-          <TextInput
-            style={styles.chatInput}
-            placeholder={`Escribe algo en #${activeTab}…`}
-            placeholderTextColor="rgba(90, 90, 104, 1)"
-          />
-          <View style={styles.chatInputActions}>
-            <Pressable style={styles.chatIconBtn}>
-              <Ionicons name="camera-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-            </Pressable>
-            <Pressable style={styles.chatIconBtn}>
-              <Ionicons name="mic-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-            </Pressable>
+  // Recording State
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const recordingTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const handleSend = () => {
+    if (text.trim().length === 0) return;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Math.random().toString(),
+        sender: "Tú",
+        initials: "TÚ",
+        text: text.trim(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isMe: true,
+      }
+    ]);
+    setText("");
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  };
+
+  const startRecording = () => {
+    setIsRecording(true);
+    setRecordingSeconds(0);
+    recordingTimer.current = setInterval(() => {
+      setRecordingSeconds((s) => s + 1);
+    }, 1000);
+  };
+
+  const stopRecording = (send: boolean) => {
+    if (recordingTimer.current) {
+      clearInterval(recordingTimer.current);
+      recordingTimer.current = null;
+    }
+    setIsRecording(false);
+    if (send && recordingSeconds > 0) {
+      const formatTime = (secs: number) => {
+        const m = Math.floor(secs / 60);
+        const s = secs % 60;
+        return `${m}:${s < 10 ? "0" : ""}${s}`;
+      };
+      const duration = formatTime(recordingSeconds);
+      const newMsg = {
+        id: Math.random().toString(),
+        sender: "Tú",
+        initials: "TÚ",
+        text: `Nota de voz (${duration})`,
+        audioDuration: duration,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isMe: true,
+      };
+      setMessages((prev) => [...prev, newMsg]);
+      setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  };
+
+  const handleAttachFile = () => {
+    Alert.alert(
+      "Compartir archivo",
+      "Selecciona un archivo para enviar al parche:",
+      [
+        {
+          text: "📄 Apuntes_Calculo_III.pdf",
+          onPress: () => {
+            const newMsg = {
+              id: Math.random().toString(),
+              sender: "Tú",
+              initials: "TÚ",
+              text: "Apuntes_Calculo_III.pdf",
+              fileType: "pdf",
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isMe: true,
+            };
+            setMessages((prev) => [...prev, newMsg]);
+          }
+        },
+        {
+          text: "📊 Taller_1_Matrices.zip",
+          onPress: () => {
+            const newMsg = {
+              id: Math.random().toString(),
+              sender: "Tú",
+              initials: "TÚ",
+              text: "Taller_1_Matrices.zip",
+              fileType: "zip",
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isMe: true,
+            };
+            setMessages((prev) => [...prev, newMsg]);
+          }
+        },
+        {
+          text: "Cancelar",
+          style: "cancel"
+        }
+      ]
+    );
+  };
+
+  const handleCamera = () => {
+    Alert.alert(
+      "Compartir foto",
+      "Selecciona una opción:",
+      [
+        {
+          text: "📸 Tomar foto",
+          onPress: () => {
+            const newMsg = {
+              id: Math.random().toString(),
+              sender: "Tú",
+              initials: "TÚ",
+              text: "Foto tomada en el campus",
+              image: "https://picsum.photos/id/1018/600/400",
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isMe: true,
+            };
+            setMessages((prev) => [...prev, newMsg]);
+          }
+        },
+        {
+          text: "🖼️ Elegir de galería",
+          onPress: () => {
+            const newMsg = {
+              id: Math.random().toString(),
+              sender: "Tú",
+              initials: "TÚ",
+              text: "Meme_parcial.jpg",
+              image: "https://picsum.photos/id/1025/600/400",
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isMe: true,
+            };
+            setMessages((prev) => [...prev, newMsg]);
+          }
+        },
+        {
+          text: "Cancelar",
+          style: "cancel"
+        }
+      ]
+    );
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 140 : 0}
+    >
+      <View style={styles.chatRoot}>
+        <ScrollView
+          ref={scrollRef}
+          style={styles.chatScroll}
+          contentContainerStyle={styles.chatScrollContent}
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+        >
+          {messages.map((msg) => (
+            <View key={msg.id} style={[styles.messageRow, msg.isMe && styles.messageRowMe]}>
+              {!msg.isMe && (
+                <View style={styles.messageAvatarBox}>
+                  <View style={styles.messageAvatar}>
+                    <Text style={styles.messageAvatarText}>{msg.initials}</Text>
+                  </View>
+                </View>
+              )}
+              
+              <View style={[styles.messageContentWrap, msg.isMe && styles.messageContentWrapMe]}>
+                <Text style={[styles.messageSender, msg.isMe && styles.messageSenderMe]}>
+                  {msg.isMe ? "Tú" : msg.sender}
+                </Text>
+                <View style={[styles.messageBubble, msg.isMe ? styles.messageBubbleMe : styles.messageBubbleOther]}>
+                  {msg.image ? (
+                    <View style={styles.imageMessageWrap}>
+                      <Image source={{ uri: msg.image }} style={styles.messageImage} resizeMode="cover" />
+                      {msg.text ? <Text style={[styles.messageText, msg.isMe && styles.messageTextMe, { marginTop: 8 }]}>{msg.text}</Text> : null}
+                    </View>
+                  ) : msg.fileType ? (
+                    <View style={styles.fileMessageWrap}>
+                      <Ionicons name="document-text" size={28} color={msg.isMe ? "#fff" : "rgba(129, 140, 248, 1)"} />
+                      <View style={styles.fileMessageInfo}>
+                        <Text style={[styles.fileMessageName, msg.isMe && styles.fileMessageNameMe]}>{msg.text}</Text>
+                        <Text style={styles.fileMessageSize}>1.2 MB • {msg.fileType.toUpperCase()}</Text>
+                      </View>
+                    </View>
+                  ) : msg.audioDuration ? (
+                    <View style={styles.audioMessageWrap}>
+                      <Ionicons name="play" size={20} color={msg.isMe ? "#fff" : "rgba(129, 140, 248, 1)"} />
+                      <View style={styles.audioWaveform}>
+                        <View style={[styles.waveformBar, { height: 8 }, msg.isMe && styles.waveformBarMe]} />
+                        <View style={[styles.waveformBar, { height: 16 }, msg.isMe && styles.waveformBarMe]} />
+                        <View style={[styles.waveformBar, { height: 12 }, msg.isMe && styles.waveformBarMe]} />
+                        <View style={[styles.waveformBar, { height: 20 }, msg.isMe && styles.waveformBarMe]} />
+                        <View style={[styles.waveformBar, { height: 14 }, msg.isMe && styles.waveformBarMe]} />
+                        <View style={[styles.waveformBar, { height: 8 }, msg.isMe && styles.waveformBarMe]} />
+                      </View>
+                      <Text style={[styles.audioDurationText, msg.isMe && styles.audioDurationTextMe]}>{msg.audioDuration}</Text>
+                    </View>
+                  ) : (
+                    <Text style={[styles.messageText, msg.isMe && styles.messageTextMe]}>
+                      {msg.text}
+                    </Text>
+                  )}
+                </View>
+                <Text style={[styles.messageTime, msg.isMe && styles.messageTimeMe]}>{msg.time}</Text>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
+
+        {/* ── Chat Input ── */}
+        <View style={styles.chatInputContainer}>
+          <View style={styles.chatInputWrap}>
+            {isRecording ? (
+              <>
+                <Pressable style={styles.chatCancelBtn} onPress={() => stopRecording(false)}>
+                  <Ionicons name="trash-outline" size={22} color="rgba(248, 113, 113, 1)" />
+                </Pressable>
+                <View style={styles.recordingIndicator}>
+                  <View style={styles.recordingDot} />
+                  <Text style={styles.recordingText}>Grabando audio ({recordingSeconds}s)...</Text>
+                </View>
+                <Pressable style={[styles.chatSendBtn, { backgroundColor: "rgba(35, 165, 89, 1)" }]} onPress={() => stopRecording(true)}>
+                  <Ionicons name="send" size={18} color="white" />
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable style={styles.chatAttachBtn} onPress={handleAttachFile}>
+                  <Ionicons name="add" size={24} color="rgba(255, 255, 255, 0.6)" />
+                </Pressable>
+                <TextInput
+                  style={styles.chatInput}
+                  placeholder={`Escribe algo en #${activeTab}…`}
+                  placeholderTextColor="rgba(90, 90, 104, 1)"
+                  value={text}
+                  onChangeText={setText}
+                />
+                <View style={styles.chatInputActions}>
+                  {text.trim().length > 0 ? (
+                    <Pressable style={styles.chatSendBtn} onPress={handleSend}>
+                      <Ionicons name="send" size={18} color="white" />
+                    </Pressable>
+                  ) : (
+                    <>
+                      <Pressable style={styles.chatIconBtn} onPress={handleCamera}>
+                        <Ionicons name="camera-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
+                      </Pressable>
+                      <Pressable style={styles.chatIconBtn} onPress={startRecording}>
+                        <Ionicons name="mic-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
+                      </Pressable>
+                    </>
+                  )}
+                </View>
+              </>
+            )}
           </View>
         </View>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -307,35 +582,7 @@ function GamesView() {
           </Pressable>
           <Text style={styles.parquesHeaderTitle}>Parqués</Text>
         </View>
-        {/* Parqués board */}
-        <View style={styles.parquesBoardFull}>
-          {/* 4 corner quadrants */}
-          <View style={styles.parquesQuadRow}>
-            <View style={[styles.parquesQuad, { backgroundColor: "rgba(59, 91, 219, 0.35)" }]}>
-              <Text style={styles.parquesQuadEmoji}>🔵</Text>
-              <Text style={styles.parquesQuadLabel}>Azul</Text>
-            </View>
-            <View style={styles.parquesCenter}>
-              <Text style={styles.parquesCenterEmoji}>🎲</Text>
-            </View>
-            <View style={[styles.parquesQuad, { backgroundColor: "rgba(242, 63, 67, 0.35)" }]}>
-              <Text style={styles.parquesQuadEmoji}>🔴</Text>
-              <Text style={styles.parquesQuadLabel}>Rojo</Text>
-            </View>
-          </View>
-          <View style={styles.parquesQuadRow}>
-            <View style={[styles.parquesQuad, { backgroundColor: "rgba(35, 165, 89, 0.35)" }]}>
-              <Text style={styles.parquesQuadEmoji}>🟢</Text>
-              <Text style={styles.parquesQuadLabel}>Verde</Text>
-            </View>
-            <View style={styles.parquesCenterBottom} />
-            <View style={[styles.parquesQuad, { backgroundColor: "rgba(240, 178, 50, 0.35)" }]}>
-              <Text style={styles.parquesQuadEmoji}>🟡</Text>
-              <Text style={styles.parquesQuadLabel}>Amarillo</Text>
-            </View>
-          </View>
-        </View>
-        <Text style={styles.parquesComingSoon}>Próximamente — modo multijugador en tiempo real</Text>
+        <ParquesBoard />
       </View>
     );
   }
@@ -398,6 +645,234 @@ function GamesView() {
       </Pressable>
 
       <Text style={styles.moreGamesText}>Más juegos próximamente...</Text>
+    </ScrollView>
+  );
+}
+
+// ─── Members View ─────────────────────────────────────────────────────────────
+
+interface ParcheMember {
+  id: string;
+  name: string;
+  initials: string;
+  role: "admin" | "moderator" | "member";
+  status: "online" | "offline" | "away";
+  career: string;
+  joinDate: string;
+}
+
+const PARCHE_MEMBERS: ParcheMember[] = [
+  { id: "1", name: "Valeria Torres", initials: "VT", role: "admin", status: "online", career: "Ingeniería de Sistemas", joinDate: " Ago 2025" },
+  { id: "2", name: "Santiago Moreno", initials: "SM", role: "admin", status: "online", career: "Ingeniería de Sistemas", joinDate: " Ago 2025" },
+  { id: "3", name: "Camila Ríos", initials: "CR", role: "moderator", status: "online", career: "Diseño de Software", joinDate: " Sep 2025" },
+  { id: "4", name: "Andrés Felipe", initials: "AF", role: "member", status: "away", career: "Ingeniería Electrónica", joinDate: " Oct 2025" },
+  { id: "5", name: "Laura Gómez", initials: "LG", role: "member", status: "online", career: "Ingeniería de Sistemas", joinDate: " Oct 2025" },
+  { id: "6", name: "Diego Ramírez", initials: "DR", role: "member", status: "offline", career: "Matemáticas Aplicadas", joinDate: " Nov 2025" },
+  { id: "7", name: "Isabella Cardona", initials: "IC", role: "member", status: "online", career: "Ingeniería de Sistemas", joinDate: " Nov 2025" },
+  { id: "8", name: "Mateo Ospina", initials: "MO", role: "member", status: "offline", career: "Física", joinDate: " Ene 2026" },
+  { id: "9", name: "Sofía Vélez", initials: "SV", role: "member", status: "online", career: "Ingeniería de Sistemas", joinDate: " Ene 2026" },
+  { id: "10", name: "Juan García", initials: "JG", role: "member", status: "online", career: "Ingeniería de Sistemas", joinDate: " Feb 2026" },
+];
+
+const ROLE_COLORS: Record<string, string> = {
+  admin: "rgba(242, 63, 67, 1)",
+  moderator: "rgba(240, 178, 50, 1)",
+  member: "rgba(143, 132, 224, 0.6)",
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  online: "rgba(35, 165, 89, 1)",
+  away: "rgba(240, 178, 50, 1)",
+  offline: "rgba(90, 90, 104, 1)",
+};
+
+function MembersView() {
+  const router = useRouter();
+
+  const sorted = [...PARCHE_MEMBERS].sort((a, b) => {
+    const roleOrder = { admin: 0, moderator: 1, member: 2 };
+    return roleOrder[a.role] - roleOrder[b.role];
+  });
+
+  return (
+    <ScrollView style={styles.membersScroll} contentContainerStyle={styles.membersContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.membersHeader}>
+        <Text style={styles.membersCount}>10 miembros</Text>
+        <View style={styles.membersSearchWrap}>
+          <Ionicons name="search" size={14} color="rgba(90, 90, 104, 1)" />
+          <TextInput
+            style={styles.membersSearchInput}
+            placeholder="Buscar miembro..."
+            placeholderTextColor="rgba(90, 90, 104, 1)"
+          />
+        </View>
+      </View>
+
+      {sorted.map((member, idx) => (
+        <Pressable
+          key={member.id}
+          style={({ pressed }) => [
+            styles.memberRow,
+            idx < sorted.length - 1 && styles.memberRowBorder,
+            pressed && { backgroundColor: "rgba(255, 255, 255, 0.04)" },
+          ]}
+          onPress={() => router.push(`/user/${member.id}`)}
+        >
+          <View style={styles.memberAvatarWrap}>
+            <View style={[styles.memberAvatar, { borderColor: ROLE_COLORS[member.role].replace("1)", "0.3)"), backgroundColor: ROLE_COLORS[member.role].replace("1)", "0.15)") }]}>
+              <Text style={[styles.memberAvatarText, { color: ROLE_COLORS[member.role] }]}>{member.initials}</Text>
+            </View>
+            <View style={[styles.memberStatusDot, { backgroundColor: STATUS_COLORS[member.status] }]} />
+          </View>
+
+          <View style={styles.memberInfo}>
+            <View style={styles.memberNameRow}>
+              <Text style={styles.memberName}>{member.name}</Text>
+              {member.role !== "member" && (
+                <View style={[styles.roleBadge, { borderColor: ROLE_COLORS[member.role].replace("1)", "0.3)"), backgroundColor: ROLE_COLORS[member.role].replace("1)", "0.12)") }]}>
+                  <Ionicons
+                    name={member.role === "admin" ? "shield-checkmark" : "hammer"}
+                    size={9}
+                    color={ROLE_COLORS[member.role]}
+                  />
+                  <Text style={[styles.roleBadgeText, { color: ROLE_COLORS[member.role] }]}>
+                    {member.role === "admin" ? "Admin" : "Mod"}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.memberCareer}>{member.career}</Text>
+          </View>
+
+          <Ionicons name="chevron-forward" size={16} color="rgba(90, 90, 104, 0.4)" />
+        </Pressable>
+      ))}
+
+      <View style={{ height: 100 }} />
+    </ScrollView>
+  );
+}
+
+// ─── Settings View ────────────────────────────────────────────────────────────
+
+interface SettingsItemProps {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value?: string;
+  color?: string;
+  hasArrow?: boolean;
+  isToggle?: boolean;
+  toggleDefault?: boolean;
+  onPress?: () => void;
+}
+
+function SettingsItem({ icon, label, value, color = "rgba(236, 237, 248, 1)", hasArrow = true, onPress }: SettingsItemProps) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.settingsItem, pressed && { backgroundColor: "rgba(255, 255, 255, 0.04)" }]}
+      onPress={onPress}
+    >
+      <View style={[styles.settingsItemIcon, { backgroundColor: color.replace("1)", "0.12)") }]}>
+        <Ionicons name={icon} size={18} color={color} />
+      </View>
+      <View style={styles.settingsItemContent}>
+        <Text style={styles.settingsItemLabel}>{label}</Text>
+        {value ? <Text style={styles.settingsItemValue}>{value}</Text> : null}
+      </View>
+      {hasArrow && <Ionicons name="chevron-forward" size={16} color="rgba(90, 90, 104, 0.4)" />}
+    </Pressable>
+  );
+}
+
+function SettingsView() {
+  const [notifEnabled, setNotifEnabled] = useState(true);
+  const [mentionOnly, setMentionOnly] = useState(false);
+
+  return (
+    <ScrollView style={styles.settingsScroll} contentContainerStyle={styles.settingsContent} showsVerticalScrollIndicator={false}>
+      {/* Server info */}
+      <View style={styles.settingsServerCard}>
+        <View style={styles.settingsServerIcon}>
+          <Text style={{ fontSize: 24 }}>📐</Text>
+        </View>
+        <View style={styles.settingsServerInfo}>
+          <Text style={styles.settingsServerName}>Cálculo III Survivors</Text>
+          <Text style={styles.settingsServerDesc}>Parche de cálculo — ECI 2026</Text>
+        </View>
+      </View>
+
+      {/* Overview */}
+      <Text style={styles.settingsSectionLabel}>GENERAL</Text>
+      <View style={styles.settingsGroup}>
+        <SettingsItem icon="information-circle" label="Descripción del parche" value="Cálculo III — ECI" />
+        <SettingsItem icon="image" label="Icono del parche" value="📐" />
+        <SettingsItem icon="color-palette" label="Color del parche" value="Rojo" />
+        <SettingsItem icon="people" label="Roles" value="3" />
+      </View>
+
+      {/* Notifications */}
+      <Text style={styles.settingsSectionLabel}>NOTIFICACIONES</Text>
+      <View style={styles.settingsGroup}>
+        <Pressable
+          style={({ pressed }) => [styles.settingsItem, pressed && { backgroundColor: "rgba(255, 255, 255, 0.04)" }]}
+          onPress={() => setNotifEnabled((n) => !n)}
+        >
+          <View style={[styles.settingsItemIcon, { backgroundColor: "rgba(99, 102, 241, 0.12)" }]}>
+            <Ionicons name="notifications" size={18} color="rgba(99, 102, 241, 1)" />
+          </View>
+          <View style={styles.settingsItemContent}>
+            <Text style={styles.settingsItemLabel}>Notificaciones</Text>
+          </View>
+          <View style={[styles.toggleTrack, notifEnabled && styles.toggleTrackActive]}>
+            <View style={[styles.toggleThumb, notifEnabled && styles.toggleThumbActive]} />
+          </View>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [styles.settingsItem, pressed && { backgroundColor: "rgba(255, 255, 255, 0.04)" }]}
+          onPress={() => setMentionOnly((m) => !m)}
+        >
+          <View style={[styles.settingsItemIcon, { backgroundColor: "rgba(240, 178, 50, 0.12)" }]}>
+            <Ionicons name="at" size={18} color="rgba(240, 178, 50, 1)" />
+          </View>
+          <View style={styles.settingsItemContent}>
+            <Text style={styles.settingsItemLabel}>Solo menciones</Text>
+          </View>
+          <View style={[styles.toggleTrack, mentionOnly && styles.toggleTrackActive]}>
+            <View style={[styles.toggleThumb, mentionOnly && styles.toggleThumbActive]} />
+          </View>
+        </Pressable>
+
+        <SettingsItem icon="volume-high" label="Sonido de notificación" value="Predeterminado" />
+      </View>
+
+      {/* Permissions */}
+      <Text style={styles.settingsSectionLabel}>PERMISOS</Text>
+      <View style={styles.settingsGroup}>
+        <SettingsItem icon="megaphone" label="Publicar anuncios" value="Admin & Mod" />
+        <SettingsItem icon="chatbubbles" label="Canales de texto" value="Todos" />
+        <SettingsItem icon="document-text" label="Subir archivos" value="Todos" />
+        <SettingsItem icon="videocam" label="Llamadas de video" value="Todos" />
+        <SettingsItem icon="person-add" label="Invitar miembros" value="Admin & Mod" />
+      </View>
+
+      {/* Moderation */}
+      <Text style={styles.settingsSectionLabel}>MODERACIÓN</Text>
+      <View style={styles.settingsGroup}>
+        <SettingsItem icon="shield-checkmark" label="Auto-moderación" value="Activa" />
+        <SettingsItem icon="ban" label="Palabras bloqueadas" value="3 palabras" />
+        <SettingsItem icon="time" label="Slow mode" value="30s" />
+        <SettingsItem icon="lock-closed" label="Canal bloqueado" value="Desactivado" />
+      </View>
+
+      {/* Danger */}
+      <Text style={styles.settingsSectionLabel}>ZONA DE PELIGRO</Text>
+      <View style={styles.settingsGroup}>
+        <SettingsItem icon="exit" label="Salir del parche" color="rgba(242, 63, 67, 1)" hasArrow />
+        <SettingsItem icon="trash" label="Eliminar parche" color="rgba(242, 63, 67, 1)" hasArrow />
+      </View>
+
+      <View style={{ height: 120 }} />
     </ScrollView>
   );
 }
@@ -520,7 +995,7 @@ const styles = StyleSheet.create({
   },
   chatScrollContent: {
     padding: 16,
-    paddingBottom: 100, // Space for input and nav bar
+    paddingBottom: 60,
   },
   messageRow: {
     flexDirection: "row",
@@ -579,7 +1054,7 @@ const styles = StyleSheet.create({
   },
   chatInputContainer: {
     position: "absolute",
-    bottom: 85, // Above GlassNavBar
+    bottom: 0, // GlassNavBar hidden in parche
     left: 0,
     right: 0,
     paddingHorizontal: 16,
@@ -618,6 +1093,139 @@ const styles = StyleSheet.create({
   chatIconBtn: {
     justifyContent: "center",
     alignItems: "center",
+  },
+  chatSendBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(99, 102, 241, 1)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  messageRowMe: {
+    justifyContent: "flex-end",
+  },
+  messageContentWrapMe: {
+    alignItems: "flex-end",
+    flex: 0,
+    maxWidth: "85%",
+  },
+  messageSenderMe: {
+    color: "rgba(129, 140, 248, 1)",
+    textAlign: "right",
+  },
+  messageBubbleMe: {
+    backgroundColor: "rgba(99, 102, 241, 1)",
+    borderTopRightRadius: 4,
+    borderTopLeftRadius: 18,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    alignSelf: "flex-end",
+  },
+  messageBubbleOther: {
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderTopLeftRadius: 5,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    alignSelf: "flex-start",
+  },
+  messageTextMe: {
+    color: "white",
+  },
+  messageTimeMe: {
+    textAlign: "right",
+  },
+
+  // Dynamic attachment styling
+  imageMessageWrap: {
+    borderRadius: 12,
+    overflow: "hidden",
+    width: 200,
+  },
+  messageImage: {
+    width: 200,
+    height: 130,
+    borderRadius: 8,
+  },
+  fileMessageWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 4,
+  },
+  fileMessageInfo: {
+    flexDirection: "column",
+  },
+  fileMessageName: {
+    color: "rgba(255, 255, 255, 0.95)",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  fileMessageNameMe: {
+    color: "white",
+  },
+  fileMessageSize: {
+    color: "rgba(255, 255, 255, 0.5)",
+    fontSize: 10,
+    marginTop: 2,
+  },
+  audioMessageWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 4,
+    minWidth: 160,
+  },
+  audioWaveform: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flex: 1,
+  },
+  waveformBar: {
+    width: 3,
+    backgroundColor: "rgba(129, 140, 248, 0.4)",
+    borderRadius: 1.5,
+  },
+  waveformBarMe: {
+    backgroundColor: "rgba(255, 255, 255, 0.4)",
+  },
+  audioDurationText: {
+    color: "rgba(129, 140, 248, 1)",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  audioDurationTextMe: {
+    color: "white",
+  },
+
+  // Recording Toolbar Styles
+  chatCancelBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(248, 113, 113, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  recordingIndicator: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(248, 113, 113, 1)",
+  },
+  recordingText: {
+    color: "rgba(248, 113, 113, 1)",
+    fontSize: 13,
+    fontWeight: "500",
   },
 
   // ── Games View ──
@@ -937,5 +1545,300 @@ const styles = StyleSheet.create({
     fontSize: 10,
     textAlign: "center",
     marginTop: 8,
+  },
+
+  // ── Members View ──
+  membersScroll: {
+    flex: 1,
+  },
+  membersContent: {
+    paddingBottom: 100,
+  },
+  membersHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    gap: 10,
+  },
+  membersCount: {
+    color: "rgba(90, 90, 104, 1)",
+    fontSize: 10,
+    fontWeight: "500",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  membersSearchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  membersSearchInput: {
+    flex: 1,
+    color: "white",
+    fontSize: 13,
+    padding: 0,
+  },
+  memberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 12,
+  },
+  memberRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.03)",
+  },
+  memberAvatarWrap: {
+    position: "relative",
+  },
+  memberAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  memberAvatarText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  memberStatusDot: {
+    position: "absolute",
+    bottom: -1,
+    right: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: "rgba(11, 13, 24, 1)",
+  },
+  memberInfo: {
+    flex: 1,
+  },
+  memberNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  memberName: {
+    color: "rgba(236, 237, 248, 1)",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  roleBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: 3,
+  },
+  roleBadgeText: {
+    fontSize: 8,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  memberCareer: {
+    color: "rgba(143, 132, 224, 0.6)",
+    fontSize: 11,
+    marginTop: 2,
+  },
+
+  // ── Settings View ──
+  settingsScroll: {
+    flex: 1,
+  },
+  settingsContent: {
+    paddingBottom: 100,
+  },
+  settingsServerCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    margin: 16,
+    padding: 16,
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.06)",
+    borderRadius: 16,
+    gap: 14,
+  },
+  settingsServerIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "rgba(242, 63, 67, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(242, 63, 67, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  settingsServerInfo: {
+    flex: 1,
+  },
+  settingsServerName: {
+    color: "rgba(236, 237, 248, 1)",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  settingsServerDesc: {
+    color: "rgba(143, 132, 224, 0.6)",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  settingsSectionLabel: {
+    color: "rgba(90, 90, 104, 1)",
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    paddingHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  settingsGroup: {
+    marginHorizontal: 16,
+    backgroundColor: "rgba(255, 255, 255, 0.02)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.05)",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  settingsItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  settingsItemIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  settingsItemContent: {
+    flex: 1,
+  },
+  settingsItemLabel: {
+    color: "rgba(236, 237, 248, 1)",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  settingsItemValue: {
+    color: "rgba(90, 90, 104, 1)",
+    fontSize: 11,
+    marginTop: 1,
+  },
+  toggleTrack: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "rgba(90, 90, 104, 0.3)",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  toggleTrackActive: {
+    backgroundColor: "rgba(99, 102, 241, 1)",
+  },
+  toggleThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "white",
+    alignSelf: "flex-start",
+  },
+  toggleThumbActive: {
+    alignSelf: "flex-end",
+  },
+
+  // ── Dropdown Menu ──
+  menuBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 99,
+  },
+  dropdownMenu: {
+    position: "absolute",
+    top: 44,
+    right: 0,
+    width: 180,
+    backgroundColor: "rgba(22, 24, 40, 0.97)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 14,
+    paddingVertical: 6,
+    zIndex: 100,
+    shadowColor: "rgba(0, 0, 0, 0.5)",
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 1,
+    elevation: 12,
+  },
+  dropdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    gap: 10,
+  },
+  dropdownText: {
+    color: "rgba(236, 237, 248, 1)",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  dropdownDivider: {
+    height: 1,
+    marginHorizontal: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+  },
+
+  // ── Panel Overlay ──
+  panelOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(11, 13, 24, 1)",
+    zIndex: 50,
+  },
+  panelContainer: {
+    flex: 1,
+  },
+  panelHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.06)",
+  },
+  panelBackBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  panelTitle: {
+    flex: 1,
+    color: "rgba(236, 237, 248, 1)",
+    fontSize: 16,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  panelCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

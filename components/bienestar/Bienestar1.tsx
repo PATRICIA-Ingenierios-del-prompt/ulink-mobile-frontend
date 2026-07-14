@@ -1,5 +1,6 @@
 import {StyleSheet} from 'react-native';
-import {View, Text, TextInput, ScrollView, Pressable} from 'react-native';
+import {View, Text, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, Alert, Image} from 'react-native';
+import React, { useState, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -13,202 +14,336 @@ export interface Bienestar1Props {
   onTabChange?: (index: 1 | 2 | 3 | 4) => void,
 }
 
+interface MonoMessage {
+  id: string;
+  text: string;
+  isMe: boolean;
+  time: string;
+  image?: string;
+  fileType?: string;
+  audioDuration?: string;
+}
+
+const MONO_RESPONSES: string[] = [
+  "Cuéntame más, estoy aquí para escucharte 🐾",
+  "Eso suena difícil. ¿Cuánto tiempo llevas sintiéndote así?",
+  "Recuerda que no estás solo/a. Mono siempre está aquí 💛",
+  "Gracias por compartirlo conmigo. ¿Qué crees que lo está causando?",
+  "Hmm, eso es importante. ¿Has podido hablar con alguien más sobre esto?",
+  "Es completamente normal sentir eso. ¿Qué te ayudaría ahora mismo? 🌿",
+];
+
+const QUICK_REPLIES = [
+  "Me siento estresado 😓",
+  "Tengo ansiedad 😰",
+  "No puedo dormir 🌙",
+  "Me siento solo 😔",
+  "Solo quiero hablar 💬",
+  "Técnica de calma 🌿",
+];
+
 export function Bienestar1(props: Bienestar1Props) {
   const router = useRouter();
+  const scrollRef = useRef<ScrollView>(null);
+  const [text, setText] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const recordingTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const [messages, setMessages] = useState<MonoMessage[]>([
+    {
+      id: 'm1',
+      text: '¡Hola! Soy Mono 🐾 Tu compañero de bienestar en la ECI. Estoy aquí para escucharte cuando lo necesites — sin juicios, solo con mucha atención.',
+      isMe: false,
+      time: '09:49 a. m.',
+    },
+    {
+      id: 'm2',
+      text: '¿Cómo estás hoy? Cuéntame lo que sea 💛',
+      isMe: false,
+      time: '09:49 a. m.',
+    },
+  ]);
+
+  const sendMessage = (msg: string) => {
+    if (!msg.trim()) return;
+    const userMsg: MonoMessage = {
+      id: Math.random().toString(),
+      text: msg.trim(),
+      isMe: true,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    setMessages(prev => [...prev, userMsg]);
+    setText('');
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+
+    // Mono auto-reply after a short delay
+    setTimeout(() => {
+      const reply = MONO_RESPONSES[Math.floor(Math.random() * MONO_RESPONSES.length)];
+      setMessages(prev => [...prev, {
+        id: Math.random().toString(),
+        text: reply,
+        isMe: false,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }]);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    }, 1200);
+  };
+
+  const startRecording = () => {
+    setIsRecording(true);
+    setRecordingSeconds(0);
+    recordingTimer.current = setInterval(() => {
+      setRecordingSeconds(s => s + 1);
+    }, 1000);
+  };
+
+  const stopRecording = (send: boolean) => {
+    if (recordingTimer.current) {
+      clearInterval(recordingTimer.current);
+      recordingTimer.current = null;
+    }
+    setIsRecording(false);
+    if (send && recordingSeconds > 0) {
+      const m = Math.floor(recordingSeconds / 60);
+      const s = recordingSeconds % 60;
+      const duration = `${m}:${s < 10 ? '0' : ''}${s}`;
+      const newMsg: MonoMessage = {
+        id: Math.random().toString(),
+        text: `Nota de voz (${duration})`,
+        audioDuration: duration,
+        isMe: true,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages(prev => [...prev, newMsg]);
+      setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+
+      // Mono always replies to voice notes warmly
+      setTimeout(() => {
+        setMessages(prev => [...prev, {
+          id: Math.random().toString(),
+          text: 'Escuché tu nota. Tómate tu tiempo, aquí no hay prisa 🐾',
+          isMe: false,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }]);
+      }, 1500);
+    }
+  };
+
+  const handleCamera = () => {
+    Alert.alert('Compartir imagen', 'Selecciona una opción:', [
+      {
+        text: '📸 Tomar foto',
+        onPress: () => {
+          const newMsg: MonoMessage = {
+            id: Math.random().toString(),
+            text: 'Foto compartida',
+            image: 'https://picsum.photos/id/1043/600/400',
+            isMe: true,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          };
+          setMessages(prev => [...prev, newMsg]);
+          setTimeout(() => {
+            setMessages(prev => [...prev, {
+              id: Math.random().toString(),
+              text: 'Gracias por compartirla. ¿Qué tiene de especial para ti? 🐾',
+              isMe: false,
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            }]);
+          }, 1200);
+        }
+      },
+      {
+        text: '🖼️ Elegir de galería',
+        onPress: () => {
+          const newMsg: MonoMessage = {
+            id: Math.random().toString(),
+            text: 'Imagen de galería',
+            image: 'https://picsum.photos/id/1044/600/400',
+            isMe: true,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          };
+          setMessages(prev => [...prev, newMsg]);
+          setTimeout(() => {
+            setMessages(prev => [...prev, {
+              id: Math.random().toString(),
+              text: 'Qué bonita imagen. ¿Cómo te hace sentir? 💛',
+              isMe: false,
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            }]);
+          }, 1200);
+        }
+      },
+      { text: 'Cancelar', style: 'cancel' }
+    ]);
+  };
+
   return (
     <View testID={props.testID ?? "113:252"} style={[styles.root, props.style]}>
       <View testID="59:549" style={styles.container}>
-        <View testID="59:550" style={styles.bienestarTab}>
-          <View testID="59:551" style={styles.container2}>
-          </View>
-          <View testID="59:552" style={styles.container3}>
-          </View>
-          <View testID="59:553" style={styles.container4}>
-          </View>
-          <View testID="59:554" style={styles.container5}>
-          </View>
-          <View testID="59:555" style={styles.container6}>
-          </View>
-          <View testID="59:556" style={styles.container7}>
-          </View>
-          <View testID="59:557" style={styles.container8}>
-            <View testID="59:558" style={styles.container9}>
-              <Text testID="59:559" style={styles.__}>
-                {`🐾`}
-              </Text>
+        <KeyboardAvoidingView
+          style={{ flex: 1, alignSelf: 'stretch' }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 140 : 0}
+        >
+          <View style={[styles.bienestarTab, { flex: 1 }]}>
+            {/* Decorative paw prints */}
+            <View testID="59:557" style={styles.container8}>
+              <View testID="59:558" style={styles.container9}><Text testID="59:559" style={styles.__}>{`🐾`}</Text></View>
+              <View testID="59:560" style={styles.container10}><Text testID="59:561" style={styles.__2}>{`🐾`}</Text></View>
+              <View testID="59:562" style={styles.container11}><Text testID="59:563" style={styles.__3}>{`🐾`}</Text></View>
+              <View testID="59:564" style={styles.container12}><Text testID="59:565" style={styles.__4}>{`🐾`}</Text></View>
+              <View testID="59:566" style={styles.container13}><Text testID="59:567" style={styles.__5}>{`🐾`}</Text></View>
             </View>
-            <View testID="59:560" style={styles.container10}>
-              <Text testID="59:561" style={styles.__2}>
-                {`🐾`}
-              </Text>
-            </View>
-            <View testID="59:562" style={styles.container11}>
-              <Text testID="59:563" style={styles.__3}>
-                {`🐾`}
-              </Text>
-            </View>
-            <View testID="59:564" style={styles.container12}>
-              <Text testID="59:565" style={styles.__4}>
-                {`🐾`}
-              </Text>
-            </View>
-            <View testID="59:566" style={styles.container13}>
-              <Text testID="59:567" style={styles.__5}>
-                {`🐾`}
-              </Text>
-            </View>
-          </View>
 
-          <View testID="59:581" style={styles.container16}>
-            <View testID="59:582" style={styles.monoChat}>
-              <View testID="59:583" style={styles.container17}>
-                <View testID="59:584" style={styles.container18}>
-                  <View testID="59:585" style={styles.monoAvatar}>
-                    <View testID="59:586" style={styles.margin}>
-                      <View testID="59:587" style={styles.text}>
-                        <Text testID="59:588" style={styles.__6}>
-                          {`🐕`}
-                        </Text>
+            {/* Mono header card */}
+            <View testID="59:581" style={styles.container16}>
+              <View testID="59:582" style={styles.monoChat}>
+                <View testID="59:583" style={styles.container17}>
+                  <View testID="59:584" style={styles.container18}>
+                    <View testID="59:585" style={styles.monoAvatar}>
+                      <View testID="59:586" style={styles.margin}>
+                        <View testID="59:587" style={styles.text}>
+                          <Text testID="59:588" style={styles.__6}>{`🐕`}</Text>
+                        </View>
                       </View>
                     </View>
+                    <View testID="59:589" style={styles.container19} />
+                    <View testID="59:590" style={styles.container20} />
                   </View>
-                  <View testID="59:589" style={styles.container19}>
-                  </View>
-                  <View testID="59:590" style={styles.container20}>
-                  </View>
-                </View>
-                <View testID="59:591" style={styles.container21}>
-                  <View testID="59:592" style={styles.container22}>
-                    <View testID="59:593" style={styles.heading2}>
-                      <Text testID="59:594" style={styles.mono2}>
-                        {`Mono`}
-                      </Text>
+                  <View testID="59:591" style={styles.container21}>
+                    <View testID="59:592" style={styles.container22}>
+                      <View testID="59:593" style={styles.heading2}>
+                        <Text testID="59:594" style={styles.mono2}>{`Mono`}</Text>
+                      </View>
+                      <View testID="59:595" style={styles.text2}>
+                        <Text testID="59:596" style={styles.enLinea}>{`en línea`}</Text>
+                      </View>
                     </View>
-                    <View testID="59:595" style={styles.text2}>
-                      <Text testID="59:596" style={styles.enLinea}>
-                        {`en línea`}
-                      </Text>
+                    <View testID="59:597" style={styles.paragraph}>
+                      <Text testID="59:598" style={styles.tuCompaneroDeBienestarSiempreAqui__}>{`Tu compañero de bienestar · siempre aquí 🐾`}</Text>
                     </View>
                   </View>
-                  <View testID="59:597" style={styles.paragraph}>
-                    <Text testID="59:598" style={styles.tuCompaneroDeBienestarSiempreAqui__}>
-                      {`Tu compañero de bienestar · siempre aquí 🐾`}
-                    </Text>
+                </View>
+                <View testID="59:599" style={styles.margin2}>
+                  <View testID="59:600" style={styles.container23}>
+                    <View testID="59:601" style={styles.text3}><Text testID="59:602" style={styles._}>{`✨`}</Text></View>
+                    <View testID="59:603" style={styles.paragraph2}>
+                      <Text testID="59:604" style={styles.espacioSeguroSoloEntreTuYMono}>{`Espacio seguro — solo entre tú y Mono.`}</Text>
+                    </View>
                   </View>
                 </View>
               </View>
-              <View testID="59:599" style={styles.margin2}>
-                <View testID="59:600" style={styles.container23}>
-                  <View testID="59:601" style={styles.text3}>
-                    <Text testID="59:602" style={styles._}>
-                      {`✨`}
-                    </Text>
+
+              {/* Scrollable message list */}
+              <ScrollView
+                ref={scrollRef}
+                style={styles.chatScrollArea}
+                contentContainerStyle={styles.chatScrollContent}
+                showsVerticalScrollIndicator={false}
+                onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+              >
+                {messages.map(msg => (
+                  <View key={msg.id} style={[styles.msgRow, msg.isMe && styles.msgRowMe]}>
+                    {!msg.isMe && (
+                      <View style={styles.monoAvatar2}>
+                        <View style={styles.text4}><Text style={styles.__7}>{`🐕`}</Text></View>
+                      </View>
+                    )}
+                    <View style={[styles.msgContentWrap, msg.isMe && styles.msgContentWrapMe]}>
+                      <View style={[styles.msgBubble, msg.isMe ? styles.msgBubbleMe : styles.msgBubbleOther]}>
+                        {msg.image ? (
+                          <View>
+                            <Image source={{ uri: msg.image }} style={styles.monoMsgImage} resizeMode="cover" />
+                            {msg.text ? <Text style={[styles.msgText, msg.isMe && styles.msgTextMe, { marginTop: 8 }]}>{msg.text}</Text> : null}
+                          </View>
+                        ) : msg.audioDuration ? (
+                          <View style={styles.audioMsgWrap}>
+                            <Ionicons name="play" size={16} color={msg.isMe ? '#fff' : 'rgba(245, 158, 11, 1)'} />
+                            <View style={styles.audioWave}>
+                              {[8, 14, 10, 18, 12, 8].map((h, i) => (
+                                <View key={i} style={[styles.audioBar, { height: h }, msg.isMe && styles.audioBarMe]} />
+                              ))}
+                            </View>
+                            <Text style={[styles.audioDur, msg.isMe && styles.audioDurMe]}>{msg.audioDuration}</Text>
+                          </View>
+                        ) : (
+                          <Text style={[styles.msgText, msg.isMe && styles.msgTextMe]}>{msg.text}</Text>
+                        )}
+                      </View>
+                      <Text style={[styles.msgTime, msg.isMe && styles.msgTimeMe]}>{msg.time}</Text>
+                    </View>
                   </View>
-                  <View testID="59:603" style={styles.paragraph2}>
-                    <Text testID="59:604" style={styles.espacioSeguroSoloEntreTuYMono}>
-                      {`Espacio seguro — solo entre tú y Mono.`}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-            <View testID="59:605" style={styles.monoChat2}>
-              <View testID="59:606" style={styles.container24}>
-                <View testID="59:607" style={styles.monoAvatar2}>
-                  <View testID="59:608" style={styles.text4}>
-                    <Text testID="59:609" style={styles.__7}>
-                      {`🐕`}
-                    </Text>
-                  </View>
-                </View>
-                <View testID="59:610" style={styles.container25}>
-                  <View testID="59:611" style={styles.container26}>
-                    <Text testID="59:612" style={styles.holaSoyMono__TuCompaneroDeBienestarEnLa}>
-                      {`¡Hola! Soy Mono 🐾 Tu compañero de bienestar en la ECI. Estoy aquí para escucharte cuando lo necesites — sin juicios, solo con mucha atención.`}
-                    </Text>
-                  </View>
-                  <View testID="59:613" style={styles.text5}>
-                    <Text testID="59:614" style={styles.$49AM}>
-                      {`09:49 a. m.`}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-              <View testID="59:615" style={styles.container27}>
-                <View testID="59:616" style={styles.monoAvatar3}>
-                  <View testID="59:617" style={styles.text6}>
-                    <Text testID="59:618" style={styles.__8}>
-                      {`🐕`}
-                    </Text>
-                  </View>
-                </View>
-                <View testID="59:619" style={styles.container28}>
-                  <View testID="59:620" style={styles.container29}>
-                    <Text testID="59:621" style={styles.comoEstasHoyCuentameLoQueSea__}>
-                      {`¿Cómo estás hoy? Cuéntame lo que sea 💛`}
-                    </Text>
-                  </View>
-                  <View testID="59:622" style={styles.text7}>
-                    <Text testID="59:623" style={styles.$49AM2}>
-                      {`09:49 a. m.`}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-            <View testID="59:624" style={styles.monoChat3}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-                <Pressable testID="59:626" style={styles.button6}>
-                  <Text testID="59:627" style={styles.meSientoEstresado__}>
-                    {`Me siento estresado 😓`}
-                  </Text>
-                </Pressable>
-                <Pressable testID="59:628" style={styles.button7}>
-                  <Text testID="59:629" style={styles.tengoAnsiedad__}>
-                    {`Tengo ansiedad 😰`}
-                  </Text>
-                </Pressable>
-                <Pressable testID="59:630" style={styles.button8}>
-                  <Text testID="59:631" style={styles.noPuedoDormir__}>
-                    {`No puedo dormir 🌙`}
-                  </Text>
-                </Pressable>
-                <Pressable testID="59:632" style={styles.button9}>
-                  <Text testID="59:633" style={styles.meSientoSolo__}>
-                    {`Me siento solo 😔`}
-                  </Text>
-                </Pressable>
-                <Pressable testID="59:634" style={styles.button10}>
-                  <Text testID="59:635" style={styles.soloQuieroHablar__}>
-                    {`Solo quiero hablar 💬`}
-                  </Text>
-                </Pressable>
-                <Pressable testID="59:636" style={styles.button11}>
-                  <Text testID="59:637" style={styles.tecnicaDeCalma__}>
-                    {`Técnica de calma 🌿`}
-                  </Text>
-                </Pressable>
+                ))}
               </ScrollView>
-            </View>
-            <View testID="59:638" style={styles.monoChat4}>
-              <View testID="59:639" style={styles.container31}>
-                <TextInput
-                  style={[styles.textInput, { color: 'white' }]}
-                  placeholder="Escríbele a Mono..."
-                  placeholderTextColor="rgba(58, 58, 68, 1)"
-                />
+
+              {/* Quick-reply chips */}
+              <View testID="59:624" style={styles.monoChat3}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
+                  {QUICK_REPLIES.map(qr => (
+                    <Pressable key={qr} style={styles.button6} onPress={() => sendMessage(qr)}>
+                      <Text style={styles.meSientoEstresado__}>{qr}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+
+              {/* Input bar */}
+              <View testID="59:638" style={styles.monoChat4}>
+                <View testID="59:639" style={styles.container31}>
+                  {isRecording ? (
+                    <>
+                      <Pressable style={styles.monoCancelBtn} onPress={() => stopRecording(false)}>
+                        <Ionicons name="trash-outline" size={18} color="rgba(248, 113, 113, 1)" />
+                      </Pressable>
+                      <View style={styles.monoRecordingRow}>
+                        <View style={styles.monoRecordingDot} />
+                        <Text style={styles.monoRecordingText}>Grabando ({recordingSeconds}s)...</Text>
+                      </View>
+                      <Pressable style={[styles.monoSendBtn, { backgroundColor: 'rgba(35, 165, 89, 1)' }]} onPress={() => stopRecording(true)}>
+                        <Ionicons name="send" size={14} color="white" />
+                      </Pressable>
+                    </>
+                  ) : (
+                    <>
+                      <Pressable style={styles.monoCameraBtn} onPress={handleCamera}>
+                        <Ionicons name="camera-outline" size={18} color="rgba(245, 158, 11, 0.7)" />
+                      </Pressable>
+                      <TextInput
+                        style={[styles.textInput, { color: 'white', flex: 1 }]}
+                        placeholder="Escríbele a Mono..."
+                        placeholderTextColor="rgba(58, 58, 68, 1)"
+                        value={text}
+                        onChangeText={setText}
+                        returnKeyType="send"
+                        onSubmitEditing={() => sendMessage(text)}
+                      />
+                      {text.trim().length > 0 ? (
+                        <Pressable style={styles.monoSendBtn} onPress={() => sendMessage(text)}>
+                          <Ionicons name="send" size={14} color="white" />
+                        </Pressable>
+                      ) : (
+                        <Pressable style={styles.monoMicBtn} onPress={startRecording}>
+                          <Ionicons name="mic-outline" size={18} color="rgba(245, 158, 11, 0.7)" />
+                        </Pressable>
+                      )}
+                    </>
+                  )}
+                </View>
               </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </View>
       <View testID="59:666" style={styles.container32}>
-        <View testID="59:667" style={styles.container33}>
-        </View>
+        <View testID="59:667" style={styles.container33} />
       </View>
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   root: {
@@ -1197,5 +1332,155 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 999,
     borderTopRightRadius: 999,
     backgroundColor: 'rgba(255, 255, 255, 0.18039216101169586)',
+  },
+
+  // ── Dynamic Mono chat styles ──
+  chatScrollArea: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  chatScrollContent: {
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 12,
+  },
+  msgRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    marginBottom: 4,
+  },
+  msgRowMe: {
+    justifyContent: 'flex-end',
+  },
+  msgContentWrap: {
+    flex: 1,
+    maxWidth: '82%',
+  },
+  msgContentWrapMe: {
+    alignItems: 'flex-end',
+    flex: 0,
+  },
+  msgBubble: {
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  msgBubbleOther: {
+    backgroundColor: 'rgba(251, 191, 36, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.18)',
+    borderTopLeftRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  msgBubbleMe: {
+    backgroundColor: 'rgba(245, 158, 11, 0.85)',
+    borderTopRightRadius: 4,
+    alignSelf: 'flex-end',
+  },
+  msgText: {
+    color: 'rgba(212, 168, 71, 1)',
+    fontSize: 13,
+    lineHeight: 20,
+    fontFamily: 'Inter',
+  },
+  msgTextMe: {
+    color: 'white',
+  },
+  msgTime: {
+    color: 'rgba(90, 90, 104, 1)',
+    fontSize: 9,
+    marginTop: 3,
+    marginLeft: 4,
+    fontFamily: 'Inter',
+  },
+  msgTimeMe: {
+    textAlign: 'right',
+    marginRight: 4,
+    marginLeft: 0,
+  },
+  monoMsgImage: {
+    width: 180,
+    height: 120,
+    borderRadius: 10,
+  },
+  audioMsgWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 140,
+  },
+  audioWave: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flex: 1,
+  },
+  audioBar: {
+    width: 3,
+    backgroundColor: 'rgba(245, 158, 11, 0.4)',
+    borderRadius: 1.5,
+  },
+  audioBarMe: {
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  audioDur: {
+    color: 'rgba(245, 158, 11, 1)',
+    fontSize: 11,
+    fontWeight: '500',
+    fontFamily: 'Inter',
+  },
+  audioDurMe: {
+    color: 'white',
+  },
+  monoCameraBtn: {
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 2,
+  },
+  monoMicBtn: {
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 4,
+  },
+  monoSendBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(245, 158, 11, 1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 4,
+  },
+  monoCancelBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(248, 113, 113, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  monoRecordingRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    gap: 6,
+  },
+  monoRecordingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: 'rgba(248, 113, 113, 1)',
+  },
+  monoRecordingText: {
+    color: 'rgba(248, 113, 113, 1)',
+    fontSize: 12,
+    fontWeight: '500',
+    fontFamily: 'Inter',
   },
 });

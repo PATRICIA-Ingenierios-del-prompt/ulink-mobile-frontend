@@ -1,9 +1,13 @@
 import { Tabs } from "expo-router";
 import React from "react";
 import { View, StyleSheet } from "react-native";
+import { usePathname } from "expo-router";
 import { GlassNavBar } from "@/components/glass-nav-bar";
 
 export default function TabLayout() {
+  const pathname = usePathname();
+  const isParche = pathname.endsWith("/parche");
+
   return (
     <View style={styles.container}>
       <Tabs
@@ -22,8 +26,8 @@ export default function TabLayout() {
         <Tabs.Screen name="parche" options={{ href: null }} />
       </Tabs>
 
-      {/* Persistent nav bar — rendered once at layout level, never re-mounts */}
-      <GlassNavBar />
+      {/* Persistent nav bar — hidden inside parche screen */}
+      {!isParche && <GlassNavBar />}
     </View>
   );
 }

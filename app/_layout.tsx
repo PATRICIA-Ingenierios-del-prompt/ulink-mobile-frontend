@@ -24,6 +24,8 @@ export default function RootLayout() {
           <Stack.Screen name="settings" options={{ headerShown: false }} />
           <Stack.Screen name="bienestar" options={{ headerShown: false }} />
           <Stack.Screen name="call" options={{ headerShown: false }} />
+          <Stack.Screen name="video-call" options={{ headerShown: false }} />
+          <Stack.Screen name="monas" options={{ headerShown: false }} />
           <Stack.Screen name="profile" options={{ headerShown: false }} />
           <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
           <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />

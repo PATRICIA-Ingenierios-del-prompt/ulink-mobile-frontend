@@ -1,17 +1,70 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+function formatTimer(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
 
 export default function CallScreen() {
   const router = useRouter();
   const [micActive, setMicActive] = useState(false);
   const [speakerActive, setSpeakerActive] = useState(true);
+  const [callSeconds, setCallSeconds] = useState(0);
+  const [isConnecting, setIsConnecting] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIsConnecting(false), 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (isConnecting) return;
+    const interval = setInterval(() => setCallSeconds((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [isConnecting]);
+
+  const pulseOpacity = useSharedValue(0.4);
+  useEffect(() => {
+    if (isConnecting) {
+      pulseOpacity.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 800 }),
+          withTiming(0.4, { duration: 800 })
+        ),
+        -1,
+        false
+      );
+    } else {
+      pulseOpacity.value = withTiming(0, { duration: 300 });
+    }
+  }, [isConnecting]);
+
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: pulseOpacity.value,
+  }));
+
+  const handlePress = (setter: React.Dispatch<React.SetStateAction<boolean>>, value: boolean) => {
+    setter(!value);
+  };
 
   return (
     <SafeAreaView style={styles.root}>
-      {/* Top Bar with Go Back */}
+      {/* Top Bar */}
       <View style={styles.topBar}>
         <Pressable style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="chevron-down" size={28} color="rgba(255, 255, 255, 0.8)" />
@@ -21,12 +74,17 @@ export default function CallScreen() {
       <View style={styles.container}>
         {/* Avatar and Name */}
         <View style={styles.profileSection}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>SV</Text>
+          <View style={styles.avatarWrap}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>SV</Text>
+            </View>
+            <Animated.View style={[styles.connectingRing, pulseStyle]} />
           </View>
           <View style={styles.infoSection}>
             <Text style={styles.nameText}>Sofía V.</Text>
-            <Text style={styles.statusText}>Llamando…</Text>
+            <Text style={styles.statusText}>
+              {isConnecting ? "Llamando..." : formatTimer(callSeconds)}
+            </Text>
           </View>
         </View>
 
@@ -35,7 +93,7 @@ export default function CallScreen() {
           <View style={styles.secondaryControls}>
             <Pressable
               style={styles.controlButtonWrap}
-              onPress={() => setMicActive(!micActive)}
+              onPress={() => handlePress(setMicActive, micActive)}
             >
               <View style={[styles.controlButton, micActive && styles.controlButtonActive]}>
                 <Ionicons
@@ -49,7 +107,7 @@ export default function CallScreen() {
 
             <Pressable
               style={styles.controlButtonWrap}
-              onPress={() => setSpeakerActive(!speakerActive)}
+              onPress={() => handlePress(setSpeakerActive, speakerActive)}
             >
               <View style={[styles.controlButton, speakerActive && styles.controlButtonActive]}>
                 <Ionicons
@@ -98,11 +156,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 20,
   },
+  avatarWrap: {
+    position: "relative",
+    width: 96,
+    height: 96,
+  },
   avatar: {
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: "rgba(99, 102, 241, 0.3)", // Fallback if no image
+    backgroundColor: "rgba(99, 102, 241, 0.3)",
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "rgba(99, 102, 241, 0.3)",
@@ -110,6 +173,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 1,
     elevation: 8,
+  },
+  connectingRing: {
+    position: "absolute",
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
+    borderRadius: 54,
+    borderWidth: 3,
+    borderColor: "rgba(99, 102, 241, 0.5)",
   },
   avatarText: {
     color: "rgba(255, 255, 255, 1)",
@@ -130,6 +203,7 @@ const styles = StyleSheet.create({
     color: "rgba(143, 132, 224, 1)",
     fontSize: 13,
     fontWeight: "500",
+    fontVariant: ["tabular-nums"],
   },
   controlsWrapper: {
     alignItems: "center",
@@ -174,6 +248,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 1,
     elevation: 8,
-    transform: [{ rotate: "135deg" }], // Rotate phone icon to look like "hang up"
+    transform: [{ rotate: "135deg" }],
   },
 });

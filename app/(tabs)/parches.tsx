@@ -226,6 +226,16 @@ function FriendRow({ friend }: { friend: Friend }) {
         >
           <Ionicons name="call" size={16} color="rgba(143, 132, 224, 0.8)" />
         </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.actionIconBtn,
+            styles.actionIconBtnSecondary,
+            pressed && { opacity: 0.7, transform: [{ scale: 0.92 }] },
+          ]}
+          onPress={() => router.push("/video-call")}
+        >
+          <Ionicons name="videocam" size={16} color="rgba(143, 132, 224, 0.8)" />
+        </Pressable>
       </View>
     </View>
   );
