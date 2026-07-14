@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, PanResponder, Dimensions, KeyboardAvoidingView, Platform, Alert, Image } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Path } from "react-native-svg";
@@ -11,6 +11,7 @@ type PanelView = "miembros" | "ajustes" | null;
 
 export default function ParcheScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<SubTab>("anuncios");
   const [panel, setPanel] = useState<PanelView>(null);
   const [showMenu, setShowMenu] = useState(false);
@@ -131,7 +132,7 @@ export default function ParcheScreen() {
       {panel && (
         <View style={styles.panelOverlay}>
           <View style={styles.panelContainer}>
-            <View style={styles.panelHeader}>
+            <View style={[styles.panelHeader, { paddingTop: insets.top + 8 }]}>
               <Pressable style={styles.panelBackBtn} onPress={() => setPanel(null)}>
                 <Ionicons name="chevron-back" size={22} color="rgba(255, 255, 255, 0.8)" />
               </Pressable>
@@ -315,7 +316,7 @@ function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 140 : 0}
+      keyboardVerticalOffset={0}
     >
       <View style={styles.chatRoot}>
         <ScrollView
@@ -1053,12 +1054,9 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   chatInputContainer: {
-    position: "absolute",
-    bottom: 0, // GlassNavBar hidden in parche
-    left: 0,
-    right: 0,
     paddingHorizontal: 16,
     paddingTop: 8,
+    paddingBottom: 4,
     borderTopWidth: 1,
     borderTopColor: "rgba(255, 255, 255, 0.05)",
     backgroundColor: "rgba(11, 13, 24, 1)",
@@ -1815,7 +1813,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    paddingTop: 8,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255, 255, 255, 0.06)",

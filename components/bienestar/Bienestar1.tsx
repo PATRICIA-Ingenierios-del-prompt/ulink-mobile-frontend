@@ -1,5 +1,5 @@
 import {StyleSheet} from 'react-native';
-import {View, Text, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, Alert, Image} from 'react-native';
+import {View, Text, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, Alert, Image, Keyboard} from 'react-native';
 import React, { useState, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -186,7 +186,7 @@ export function Bienestar1(props: Bienestar1Props) {
         <KeyboardAvoidingView
           style={{ flex: 1, alignSelf: 'stretch' }}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 140 : 0}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 68 : 0}
         >
           <View style={[styles.bienestarTab, { flex: 1 }]}>
             {/* Decorative paw prints */}
@@ -243,6 +243,8 @@ export function Bienestar1(props: Bienestar1Props) {
                 style={styles.chatScrollArea}
                 contentContainerStyle={styles.chatScrollContent}
                 showsVerticalScrollIndicator={false}
+                keyboardDismissMode="on-drag"
+                keyboardShouldPersistTaps="handled"
                 onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
               >
                 {messages.map(msg => (
@@ -1349,6 +1351,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 8,
     marginBottom: 4,
+    width: '100%',
   },
   msgRowMe: {
     justifyContent: 'flex-end',
