@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { communicationService, type ChatMessage } from "@/services/communicationService";
 import { useAuth } from "@/hooks/useAuth";
+import { getChatSocket, type ChatMessage as WsChatMessage } from "@/services/chatSocket";
 
 interface Message {
   id: string;
@@ -44,14 +45,44 @@ export default function ChatScreen() {
 
   const [messages, setMessages] = useState<Message[]>([]);
 
+  const chatId = id as string;
+
   useEffect(() => {
     loadMessages();
-  }, [id]);
+  }, [chatId]);
+
+  // Connect to WebSocket and subscribe to real-time messages
+  useEffect(() => {
+    if (!chatId || !userId) return;
+    const socket = getChatSocket();
+
+    socket.activate();
+
+    const unsub = socket.subscribeToParche(chatId, {
+      onMessage: (msg: WsChatMessage) => {
+        const mapped: Message = {
+          id: msg.id,
+          sender: msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario"),
+          text: msg.content,
+          time: new Date(msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isMe: msg.senderId === userId,
+          image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
+        };
+        setMessages((prev) => [...prev, mapped]);
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+      },
+    });
+
+    return () => {
+      unsub();
+      socket.deactivate();
+    };
+  }, [chatId, userId]);
 
   const loadMessages = async () => {
-    if (!id) return;
+    if (!chatId) return;
     try {
-      const data = await communicationService.getMessages(id as string, 0, 50);
+      const data = await communicationService.getMessages(chatId, 0, 50);
       const mapped: Message[] = (data.content || []).map((m) => ({
         id: m.id,
         sender: m.senderName || "Usuario",
@@ -76,23 +107,26 @@ export default function ChatScreen() {
     return `${m}:${s < 10 ? "0" : ""}${s}`;
   };
 
-  const handleSend = () => {
+  const handleSend = useCallback(() => {
     if (text.trim().length === 0) return;
-    const newMsg: Message = {
-      id: Math.random().toString(),
-      sender: "Tú",
-      text: text.trim(),
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isMe: true,
-    };
-    setMessages((prev) => [...prev, newMsg]);
-    setText("");
-    
-    // Auto-scroll to end
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }, 100);
-  };
+    const socket = getChatSocket();
+    if (socket.connected) {
+      socket.sendMessage(chatId, text.trim());
+      setText("");
+    } else {
+      // Fallback: add locally if WS is down
+      const newMsg: Message = {
+        id: Math.random().toString(),
+        sender: "Tú",
+        text: text.trim(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isMe: true,
+      };
+      setMessages((prev) => [...prev, newMsg]);
+      setText("");
+    }
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+  }, [text, chatId]);
 
   const startRecording = () => {
     setIsRecording(true);

@@ -3,12 +3,18 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ParquesPiece, ParquesDice, ParquesCorner } from "./";
 import { useParquesGame } from "../../hooks/useParquesGame";
+import { useParquesGameOnline } from "../../hooks/useParquesGameOnline";
 import {
   TRACK, P_COLORS, SAFES, STARTS, ARROW_DIR, HOME_COLOR,
   inArm, hexA,
 } from "../../constants/parques";
 
 const GRID = 19;
+
+interface ParquesBoardProps {
+  gameId?: string | null;
+  myPlayerId?: string;
+}
 
 // Triangle clip-paths as React Native View borders
 const TRIANGLE_CLIPS: Record<string, { w: string; h: string; style: object }> = {
@@ -18,15 +24,26 @@ const TRIANGLE_CLIPS: Record<string, { w: string; h: string; style: object }> = 
   left:  { w: "34%", h: "34%", style: { borderLeftWidth: 6, borderRightWidth: 0, borderBottomWidth: 0, borderTopWidth: 0 } },
 };
 
-export function ParquesBoard() {
+export function ParquesBoard({ gameId, myPlayerId }: ParquesBoardProps) {
   const insets = useSafeAreaInsets();
   const [boardWidth, setBoardWidth] = useState(0);
   const cellSize = boardWidth / GRID;
 
+  // Use online game if gameId + myPlayerId are provided, otherwise local mock
+  const onlineGame = useParquesGameOnline(
+    gameId ?? null,
+    myPlayerId ?? ""
+  );
+  const localGame = useParquesGame();
+
+  const game = gameId && myPlayerId ? onlineGame : localGame;
+
   const {
     pieces, currentPlayer, dice, rolling, hasDiced, isDouble, diceSum,
-    winner, log, isMyTurn, playerNames, rollDice, movePiece, skipTurn, resetGame,
-  } = useParquesGame();
+    winner, log, isMyTurn, playerNames, rollDice, movePiece, skipTurn,
+  } = game;
+
+  const resetGame = "resetGame" in game ? game.resetGame : undefined;
 
   const getBoardPos = useCallback(
     (piece: { player: number; trackPos: number }): [number, number] | null => {
@@ -238,6 +255,21 @@ export function ParquesBoard() {
         <Text style={[styles.statusText, { color: P_COLORS[currentPlayer] }]}>{statusText}</Text>
       </View>
 
+      {/* Online game controls */}
+      {gameId && "createGame" in game && (
+        <View style={styles.onlineControls}>
+          <Pressable style={styles.onlineBtn} onPress={(game as any).createGame}>
+            <Text style={styles.onlineBtnText}>Crear partida</Text>
+          </Pressable>
+          <Pressable style={styles.onlineBtn} onPress={() => (game as any).addBot("MEDIUM")}>
+            <Text style={styles.onlineBtnText}>Agregar bot</Text>
+          </Pressable>
+          <Pressable style={styles.onlineBtn} onPress={() => (game as any).startGame()}>
+            <Text style={styles.onlineBtnText}>Iniciar</Text>
+          </Pressable>
+        </View>
+      )}
+
       {/* Dice + Controls */}
       <View style={styles.controlsRow}>
         <View style={styles.diceCard}>
@@ -268,7 +300,7 @@ export function ParquesBoard() {
           )}
         </View>
 
-        <Pressable style={styles.resetBtn} onPress={resetGame}>
+        <Pressable style={styles.resetBtn} onPress={resetGame ?? (() => {})}>
           <Text style={[styles.resetBtnText, winner !== null && { color: "#0F0E1A" }]}>
             Nueva
           </Text>
@@ -485,5 +517,25 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: "rgba(108,99,255,0.05)",
     marginBottom: 2,
+  },
+  onlineControls: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 16,
+    marginTop: 8,
+  },
+  onlineBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: "rgba(108,99,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(108,99,255,0.3)",
+    alignItems: "center",
+  },
+  onlineBtnText: {
+    color: "rgba(129,140,248,1)",
+    fontSize: 11,
+    fontWeight: "600",
   },
 });

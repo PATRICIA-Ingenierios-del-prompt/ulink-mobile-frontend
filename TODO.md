@@ -2,13 +2,13 @@
 
 ## Priority 1 — Critical (blocks core functionality)
 
-- [ ] **WebSocket/STOMP chat** — `@stomp/stompjs` and `sockjs-client` installed but unused. 5 WS connections needed:
-  1. **Chat+Voice** — `/ws-stomp?access_token={jwt}` (Native WS). Subscribe: `/topic/chat/{chatId}`, `/topic/voice/{chatId}`, `/user/queue/voice-signal`, `/user/queue/kicked`. Send: `/app/chat.send/{chatId}`, `/app/voice.join/{chatId}`, `/app/voice.signal/{chatId}`
-  2. **Board/Lienzo** — `/ws/board` (SockJS, public). Subscribe: `/exchange/amq.topic/board.{id}`. Send: `/app/board/{id}/stroke`
-  3. **Geo** — `/ws/geo?access_token={jwt}` (Native WS). Subscribe: `/topic/geo/{eventId}`, `/user/queue/geo/{eventId}/snapshot`. Send: `/app/geo/{eventId}`
-  4. **Parques Game** — `/parques-ws` (SockJS, public). Subscribe: `/exchange/amq.topic/game.{gameId}`. Send: `/app/game/{gameId}/roll`, `.../move`, `.../pass`
-  5. **Notifications** — `/ws/notifications/**` (unused in web frontend)
-  All use `?access_token={jwt}` query param for auth. **(PENDING)**
+- [x] **WebSocket/STOMP chat** — `@stomp/stompjs` and `sockjs-client` installed. 4 WS services created:
+  1. **Chat+Voice** — `services/chatSocket.ts` — `/ws-stomp?access_token={jwt}` (Native WS). Subscribe: `/topic/chat/{chatId}`, `/topic/voice/{chatId}`, `/user/queue/voice-signal`, `/user/queue/kicked`. Send: `/app/chat.send/{chatId}`, `/app/voice.join/{chatId}`, `/app/voice.signal/{chatId}`. Wired into `chat/[id].tsx`.
+  2. **Board/Lienzo** — `services/boardSocket.ts` — `/ws/board` (SockJS, public). Subscribe: `/exchange/amq.topic/board.{id}`, `.clear`, `.cursor`. Send: `/app/board/{id}/stroke`, `/app/board/{id}/cursor`. REST: `boardApi` for create/get/clear.
+  3. **Geo** — `services/geoSocket.ts` — `/ws/geo?access_token={jwt}` (Native WS). Subscribe: `/topic/geo/{eventId}`, `/user/queue/geo/{eventId}/snapshot`. Send: `/app/geo/{eventId}`. Snapshot subscribes after broadcast to avoid race.
+  4. **Parques Game** — `services/parquesSocket.ts` — `/parques-ws` (SockJS, public). Subscribe: `/exchange/amq.topic/game.{gameId}`, `/exchange/amq.topic/errors`. Send: `/app/game/create`, `/app/game/{gameId}/roll|move|pass|addBot|start`. Wired into `ParquesBoard` via `hooks/useParquesGameOnline.ts`.
+  5. **Notifications** — `/ws/notifications/**` (unused in web frontend — not implemented)
+  All use `?access_token={jwt}` query param for auth. **(DONE)**
 - [x] **Deep linking config** — `linking` config added to `app/_layout.tsx`, `DeepLinkHandler` component listens for `ulink://invite/{token}` and `ulink://parche/{id}`. `scheme: "ulink"` in app.json.
 - [x] **Onboarding flow** — `app/onboarding.tsx` created (3-step wizard: name/apellidos, carrera/semestre/genero, interests). Auth flow in `welcome-login.tsx` checks `userService.necesitaOnboarding()` and redirects accordingly.
 - [x] **Push notifications** — `expo-notifications` installed, configured in `app.json`, `services/notificationsService.ts` created (register, listen, handle tap). NotificationObserver in `_layout.tsx` handles navigation from notification taps. Registration called after login in `welcome-login.tsx`. Backend device token endpoint still needed.
@@ -29,7 +29,7 @@
 
 - [ ] **Audio recording** — Install `expo-av`, implement recording/playback in chat voice messages.
 - [ ] **WebRTC calls** — Implement real video/audio calls.
-- [ ] **Lienzo sharing** — Sync collaborative canvas drawings via WebSocket.
+- [ ] **Lienzo sharing** — `services/boardSocket.ts` created (STOMP + REST). Need to wire into the Lienzo tab UI in `parche.tsx` to sync collaborative canvas drawings via WebSocket.
 - [ ] **Monas collectibles** — Connect to gamification API.
 - [ ] **Offline support** — Cache layer for messages and profiles.
 - [ ] **Parche invite creation** — Wire `parcheService.createInvite()` in parche settings for admins.
