@@ -19,7 +19,7 @@ WebBrowser.maybeCompleteAuthSession();
 
 export default function WelcomeLoginScreen() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, skipAuth } = useAuth();
   const [loading, setLoading] = useState(false);
 
   // ── OTP flow state ──
@@ -221,6 +221,16 @@ export default function WelcomeLoginScreen() {
             </>
           )}
 
+          <Pressable
+            style={styles.skipButton}
+            onPress={() => {
+              skipAuth();
+              router.replace("/(tabs)/home");
+            }}
+          >
+            <Text style={styles.skipButtonText}>Skip (Auth service down)</Text>
+          </Pressable>
+
           <Text style={styles.termsText}>
             By continuing you agree to our Terms and Privacy Policy
           </Text>
@@ -354,5 +364,20 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     lineHeight: 19.5,
     textDecorationLine: "underline",
+  },
+  skipButton: {
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.15)",
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+  },
+  skipButtonText: {
+    color: "rgba(129, 140, 248, 0.7)",
+    fontSize: 13,
+    fontWeight: "500",
+    textAlign: "center",
   },
 });

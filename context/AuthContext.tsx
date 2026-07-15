@@ -12,6 +12,7 @@ interface AuthContextValue {
   login: (tokens: TokenResponse) => Promise<void>;
   logout: () => Promise<void>;
   setUserName: (name: string) => void;
+  skipAuth: () => void;
 }
 
 export const AuthContext = createContext<AuthContextValue>({
@@ -24,6 +25,7 @@ export const AuthContext = createContext<AuthContextValue>({
   login: async () => {},
   logout: async () => {},
   setUserName: () => {},
+  skipAuth: () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -60,6 +62,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserName(tokenManager.getUserNameFromToken(tokens.accessToken));
   }, []);
 
+  const skipAuth = useCallback(() => {
+    const fakeToken = "eyJhbGciOiJIUzI1NiJ9." + btoa(JSON.stringify({
+      sub: "skip-user-000",
+      email: "skip@ulink.local",
+      name: "Skip User",
+      exp: Math.floor(Date.now() / 1000) + 86400,
+    })) + ".fake";
+    setAccessToken(fakeToken);
+    setUserId("skip-user-000");
+    setUserEmail("skip@ulink.local");
+    setUserName("Skip User");
+  }, []);
+
   const logout = useCallback(async () => {
     const refreshToken = await tokenManager.getRefreshToken();
     await tokenManager.clearTokens();
@@ -92,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         logout,
         setUserName,
+        skipAuth,
       }}
     >
       {children}

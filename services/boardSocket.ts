@@ -1,11 +1,13 @@
 /**
  * Board/Lienzo MS — STOMP client for collaborative whiteboard.
- * SockJS endpoint (public, no auth). The server uses SockJS fallback,
- * but also accepts native WebSocket upgrades.
+ * WebSocket endpoint authenticated via ?access_token= query param.
+ * The Gateway validates JWT before proxying to Board MS.
  */
 
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import { API_URL } from "../config/api";
+import { apiClient } from "./apiClient";
+import { tokenManager } from "./tokenManager";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -33,38 +35,35 @@ export interface BoardResponse {
   strokes: Stroke[];
 }
 
-// ── REST API ──────────────────────────────────────────────────────────────────
+// ── REST API (authenticated via apiClient) ────────────────────────────────────
 
-const BOARD_BASE = `${API_URL}/api/boards`;
+const BOARD_BASE = "/api/boards";
 
 export const boardApi = {
   async createBoard(customId?: string): Promise<{ boardId: string }> {
-    const url = customId ? `${BOARD_BASE}?customId=${customId}` : BOARD_BASE;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-    if (!res.ok) throw new Error(`Failed to create board: ${res.statusText}`);
-    return res.json();
+    const url = customId ? `${BOARD_BASE}?customId=${encodeURIComponent(customId)}` : BOARD_BASE;
+    const { data } = await apiClient.post(url);
+    return data;
   },
 
   async getBoard(boardId: string): Promise<BoardResponse> {
-    const res = await fetch(`${BOARD_BASE}/${boardId}`);
-    if (!res.ok) throw new Error(`Failed to fetch board: ${res.statusText}`);
-    return res.json();
+    const { data } = await apiClient.get(`${BOARD_BASE}/${boardId}`);
+    return data;
   },
 
   async clearBoard(boardId: string): Promise<void> {
-    const res = await fetch(`${BOARD_BASE}/${boardId}/clear`, {
-      method: "POST",
-    });
-    if (!res.ok) throw new Error(`Failed to clear board: ${res.statusText}`);
+    await apiClient.post(`${BOARD_BASE}/${boardId}/clear`);
   },
 };
 
 // ── WebSocket Service ─────────────────────────────────────────────────────────
 
 const WS_PATH = "/ws/board";
+
+function buildWsUrl(token: string): string {
+  const base = API_URL.replace(/^http/, "ws");
+  return `${base}${WS_PATH}?access_token=${encodeURIComponent(token)}`;
+}
 
 export interface BoardSocketOptions {
   onConnect?: () => void;
@@ -81,11 +80,12 @@ export class BoardSocket {
 
   constructor(boardId: string, private opts: BoardSocketOptions = {}) {
     this.boardId = boardId;
-    const wsUrl = API_URL.replace(/^http/, "ws");
 
     this.client = new Client({
-      // Native WebSocket — SockJS servers accept native WS upgrades
-      webSocketFactory: () => new WebSocket(`${wsUrl}${WS_PATH}`) as any,
+      beforeConnect: async () => {
+        const token = (await tokenManager.getAccessToken()) ?? "";
+        this.client.brokerURL = buildWsUrl(token);
+      },
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,
       heartbeatOutgoing: 4000,

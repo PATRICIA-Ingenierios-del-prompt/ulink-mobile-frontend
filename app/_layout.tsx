@@ -9,6 +9,8 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LanguageProvider } from '@/hooks/useTranslation';
 import { AuthProvider, AuthContext } from '@/context/AuthContext';
+import { ReportsProvider } from '@/context/ReportsContext';
+import { ToastContainer } from '@/components/ToastSystem';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -87,9 +89,11 @@ export default function RootLayout() {
   return (
     <LanguageProvider>
       <AuthProvider>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <DeepLinkHandler />
-          <NotificationObserver />
+        <ReportsProvider>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <DeepLinkHandler />
+            <NotificationObserver />
+            <ToastContainer />
           <Stack>
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="welcome-login" options={{ headerShown: false }} />
@@ -105,10 +109,14 @@ export default function RootLayout() {
             <Stack.Screen name="profile" options={{ headerShown: false }} />
             <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
             <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
+            <Stack.Screen name="notifications" options={{ headerShown: false }} />
+            <Stack.Screen name="admin" options={{ headerShown: false }} />
+            <Stack.Screen name="location" options={{ headerShown: false }} />
             <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
           </Stack>
           <StatusBar style="auto" />
         </ThemeProvider>
+        </ReportsProvider>
       </AuthProvider>
     </LanguageProvider>
   );

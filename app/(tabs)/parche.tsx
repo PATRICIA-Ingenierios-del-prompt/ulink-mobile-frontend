@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, PanResponder, Dimensions, KeyboardAvoidingView, Platform, Alert, Image, ActivityIndicator } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -6,7 +6,11 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Path } from "react-native-svg";
 import { ParquesBoard } from "../../components/parques/ParquesBoard";
 import { parcheService } from "@/services/parcheService";
+import { useBoard } from "@/hooks/useBoard";
+import { useAuth } from "@/hooks/useAuth";
+import { ReportModal } from "@/components/ReportModal";
 import type { ParcheResponse, ParcheCategory, UUID } from "@/services/types";
+import type { Stroke, Point } from "@/services/boardSocket";
 
 type SubTab = "anuncios" | "general" | "apuntes" | "juegos";
 type PanelView = "miembros" | "ajustes" | null;
@@ -158,7 +162,7 @@ export default function ParcheScreen() {
 
       {/* ── Content Area ── */}
       {activeTab === "juegos" ? (
-        <GamesView />
+        <GamesView parcheId={parcheId} />
       ) : (
         <ChatView activeTab={activeTab} />
       )}
@@ -178,7 +182,7 @@ export default function ParcheScreen() {
                 <Ionicons name="close" size={20} color="rgba(255, 255, 255, 0.6)" />
               </Pressable>
             </View>
-            {panel === "miembros" ? <MembersView /> : <SettingsView parche={parche} parcheId={parcheId} />}
+            {panel === "miembros" ? <MembersView parcheName={parcheTitle} /> : <SettingsView parche={parche} parcheId={parcheId} />}
           </View>
         </View>
       )}
@@ -467,23 +471,39 @@ function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
   );
 }
 
-function GamesView() {
+function GamesView({ parcheId }: { parcheId?: string }) {
+  const { userId } = useAuth();
   const [activeTool, setActiveTool] = useState<string>("pen");
   const [activeColor, setActiveColor] = useState<string>("rgba(241, 245, 249, 1)");
   const [activeGame, setActiveGame] = useState<"list" | "lienzo" | "parques">("list");
 
+  const canvasId = parcheId ?? null;
+  const {
+    strokes: remoteStrokes,
+    isConnected,
+    sendStroke,
+    clearBoard,
+  } = useBoard(activeGame === "lienzo" ? canvasId : null, userId ?? "anonymous");
+
   // Drawing state
-  const [paths, setPaths] = useState<Array<{ d: string; color: string; size: number }>>([]);
-  const [currentPath, setCurrentPath] = useState<string>("");
+  const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
+  const [localPaths, setLocalPaths] = useState<Array<{ d: string; color: string; size: number }>>([]);
 
   const activeColorRef = useRef(activeColor);
   const activeToolRef = useRef(activeTool);
-
-  // Keep refs in sync to avoid PanResponder capturing stale state closures
   activeColorRef.current = activeColor;
   activeToolRef.current = activeTool;
 
-  const currentPathStrRef = useRef("");
+  const currentPointsRef = useRef<Point[]>([]);
+
+  const pointsToSvgD = (pts: Point[]): string => {
+    if (pts.length === 0) return "";
+    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    for (let i = 1; i < pts.length; i++) {
+      d += ` L ${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
+    }
+    return d;
+  };
 
   const panResponder = useRef(
     PanResponder.create({
@@ -491,33 +511,56 @@ function GamesView() {
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
-        const newPath = `M ${locationX.toFixed(1)} ${locationY.toFixed(1)}`;
-        currentPathStrRef.current = newPath;
-        setCurrentPath(newPath);
+        const pt: Point = { x: locationX, y: locationY };
+        currentPointsRef.current = [pt];
+        setCurrentPoints([pt]);
       },
       onPanResponderMove: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
-        const updated = `${currentPathStrRef.current} L ${locationX.toFixed(1)} ${locationY.toFixed(1)}`;
-        currentPathStrRef.current = updated;
-        setCurrentPath(updated);
+        const pt: Point = { x: locationX, y: locationY };
+        currentPointsRef.current = [...currentPointsRef.current, pt];
+        setCurrentPoints([...currentPointsRef.current]);
       },
       onPanResponderRelease: () => {
-        if (currentPathStrRef.current) {
-          const color = activeToolRef.current === "eraser" ? "rgba(15, 20, 40, 1)" : activeColorRef.current;
-          const size = activeToolRef.current === "eraser" ? 22 : 4;
-          setPaths((prev) => [...prev, { d: currentPathStrRef.current, color, size }]);
-          currentPathStrRef.current = "";
-          setCurrentPath("");
+        const pts = currentPointsRef.current;
+        if (pts.length > 0) {
+          const isEraser = activeToolRef.current === "eraser";
+          const color = isEraser ? "rgba(15, 20, 40, 1)" : activeColorRef.current;
+          const width = isEraser ? 22 : 4;
+          const stroke: Stroke = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            color,
+            width,
+            points: pts,
+          };
+          // Optimistic local add as SVG path
+          setLocalPaths((prev) => [...prev, { d: pointsToSvgD(pts), color, size: width }]);
+          // Send to other users
+          sendStroke(stroke);
+          currentPointsRef.current = [];
+          setCurrentPoints([]);
         }
       },
     })
   ).current;
 
-  const clearCanvas = () => {
-    setPaths([]);
-    setCurrentPath("");
-    currentPathStrRef.current = "";
+  const handleClear = () => {
+    setLocalPaths([]);
+    clearBoard();
   };
+
+  // Convert remote strokes to SVG paths
+  const remotePaths = useMemo(
+    () =>
+      remoteStrokes.map((s) => ({
+        d: pointsToSvgD(s.points),
+        color: s.color,
+        size: s.width,
+      })),
+    [remoteStrokes]
+  );
+
+  const allPaths = useMemo(() => [...remotePaths, ...localPaths], [remotePaths, localPaths]);
 
   const COLORS = [
     "rgba(241, 245, 249, 1)",
@@ -552,10 +595,11 @@ function GamesView() {
             <Text style={[styles.lienzoToolLabel, activeTool === "eraser" && styles.lienzoToolLabelActive]}>Borrador</Text>
           </View>
           <View style={styles.lienzoToolRight}>
-            <Pressable style={styles.lienzoClrBtn} onPress={() => { setActiveGame("list"); clearCanvas(); }}>
+            <View style={[styles.connectionDot, { backgroundColor: isConnected ? "rgba(35, 165, 89, 1)" : "rgba(248, 113, 113, 1)" }]} />
+            <Pressable style={styles.lienzoClrBtn} onPress={() => { setActiveGame("list"); handleClear(); }}>
               <Text style={styles.lienzoBackText}>Volver</Text>
             </Pressable>
-            <Pressable style={styles.lienzoClearBtn} onPress={clearCanvas}>
+            <Pressable style={styles.lienzoClearBtn} onPress={handleClear}>
               <Text style={styles.lienzoClearText}>Limpiar</Text>
             </Pressable>
           </View>
@@ -579,7 +623,7 @@ function GamesView() {
         {/* Canvas area */}
         <View style={styles.lienzoCanvas} {...panResponder.panHandlers}>
           <Svg style={StyleSheet.absoluteFill}>
-            {paths.map((p, idx) => (
+            {allPaths.map((p, idx) => (
               <Path
                 key={idx}
                 d={p.d}
@@ -590,18 +634,18 @@ function GamesView() {
                 strokeLinejoin="round"
               />
             ))}
-            {currentPath ? (
+            {currentPoints.length > 0 && (
               <Path
-                d={currentPath}
+                d={pointsToSvgD(currentPoints)}
                 stroke={activeTool === "eraser" ? "rgba(15, 20, 40, 1)" : activeColor}
                 strokeWidth={activeTool === "eraser" ? 22 : 4}
                 fill="none"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
-            ) : null}
+            )}
           </Svg>
-          {paths.length === 0 && !currentPath && (
+          {allPaths.length === 0 && currentPoints.length === 0 && (
             <Text style={styles.lienzoCanvasHint}>Dibuja aquí con tu parche 🎨</Text>
           )}
         </View>
@@ -722,8 +766,9 @@ const STATUS_COLORS: Record<string, string> = {
   offline: "rgba(90, 90, 104, 1)",
 };
 
-function MembersView() {
+function MembersView({ parcheName }: { parcheName: string }) {
   const router = useRouter();
+  const [reportTarget, setReportTarget] = useState<{ name: string } | null>(null);
 
   const sorted = [...PARCHE_MEMBERS].sort((a, b) => {
     const roleOrder = { admin: 0, moderator: 1, member: 2 };
@@ -731,6 +776,7 @@ function MembersView() {
   });
 
   return (
+    <>
     <ScrollView style={styles.membersScroll} contentContainerStyle={styles.membersContent} showsVerticalScrollIndicator={false}>
       <View style={styles.membersHeader}>
         <Text style={styles.membersCount}>10 miembros</Text>
@@ -753,6 +799,7 @@ function MembersView() {
             pressed && { backgroundColor: "rgba(255, 255, 255, 0.04)" },
           ]}
           onPress={() => router.push(`/user/${member.id}`)}
+          onLongPress={() => setReportTarget({ name: member.name })}
         >
           <View style={styles.memberAvatarWrap}>
             <View style={[styles.memberAvatar, { borderColor: ROLE_COLORS[member.role].replace("1)", "0.3)"), backgroundColor: ROLE_COLORS[member.role].replace("1)", "0.15)") }]}>
@@ -786,6 +833,13 @@ function MembersView() {
 
       <View style={{ height: 100 }} />
     </ScrollView>
+    <ReportModal
+      visible={!!reportTarget}
+      onClose={() => setReportTarget(null)}
+      reportedUserName={reportTarget?.name ?? ""}
+      parcheName={parcheName}
+    />
+    </>
   );
 }
 
@@ -1464,6 +1518,12 @@ const styles = StyleSheet.create({
   },
   lienzoToolLabelActive: {
     color: "rgba(129, 140, 248, 1)",
+  },
+  connectionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 4,
   },
   lienzoClrBtn: {
     paddingVertical: 3,
