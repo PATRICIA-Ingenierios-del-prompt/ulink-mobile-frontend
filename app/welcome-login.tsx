@@ -42,6 +42,18 @@ export default function WelcomeLoginScreen() {
         if (code) {
           const tokens = await authService.loginMicrosoft(code);
           await login(tokens);
+          const { registerForPushNotifications } = await import("@/services/notificationsService");
+          registerForPushNotifications().catch(() => {});
+          const { userService } = await import("@/services/userService");
+          const { tokenManager } = await import("@/services/tokenManager");
+          const uid = tokenManager.getUserIdFromToken(tokens.accessToken);
+          if (uid) {
+            const needsOnboarding = await userService.necesitaOnboarding(uid);
+            if (needsOnboarding) {
+              router.replace("/onboarding" as any);
+              return;
+            }
+          }
           router.replace("/(tabs)/home");
         } else {
           Alert.alert("Error", "No se recibió el código de autenticación");
@@ -86,6 +98,18 @@ export default function WelcomeLoginScreen() {
       setLoading(true);
       const tokens = await authService.verifyOtp(otpEmail.trim(), otpCode.trim());
       await login(tokens);
+      const { registerForPushNotifications } = await import("@/services/notificationsService");
+      registerForPushNotifications().catch(() => {});
+      const { userService } = await import("@/services/userService");
+      const { tokenManager } = await import("@/services/tokenManager");
+      const uid = tokenManager.getUserIdFromToken(tokens.accessToken);
+      if (uid) {
+        const needsOnboarding = await userService.necesitaOnboarding(uid);
+        if (needsOnboarding) {
+          router.replace("/onboarding" as any);
+          return;
+        }
+      }
       router.replace("/(tabs)/home");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Código inválido";

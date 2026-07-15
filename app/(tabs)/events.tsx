@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTranslation } from "@/hooks/useTranslation";
+import { eventService, type EventMapResponse } from "@/services/eventService";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -19,6 +20,48 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 type Category = "Todos" | "Académico" | "Social" | "Bienestar" | "Deportivo" | "Cultural";
 
 const CATEGORIES: Category[] = ["Todos", "Académico", "Social", "Bienestar", "Deportivo", "Cultural"];
+
+const CATEGORY_MAP: Record<string, Category> = {
+  ACADEMIC: "Académico",
+  SOCIAL: "Social",
+  WELLNESS: "Bienestar",
+  SPORT: "Deportivo",
+  CULTURAL: "Cultural",
+  MUSIC: "Cultural",
+  ENTERTAINMENT: "Social",
+  VARIETY: "Social",
+  ART: "Cultural",
+  STUDY: "Académico",
+  SPORTS: "Deportivo",
+};
+
+const CATEGORY_COLORS: Record<string, string> = {
+  ACADEMIC: "rgba(59, 140, 245, 1)",
+  SOCIAL: "rgba(35, 165, 89, 1)",
+  WELLNESS: "rgba(129, 140, 248, 1)",
+  SPORT: "rgba(240, 178, 50, 1)",
+  CULTURAL: "rgba(251, 146, 60, 1)",
+  MUSIC: "rgba(255, 107, 157, 1)",
+  ENTERTAINMENT: "rgba(91, 200, 255, 1)",
+  VARIETY: "rgba(99, 102, 241, 1)",
+  ART: "rgba(167, 139, 250, 1)",
+  STUDY: "rgba(59, 140, 245, 1)",
+  SPORTS: "rgba(240, 178, 50, 1)",
+};
+
+const CATEGORY_EMOJI: Record<string, string> = {
+  ACADEMIC: "📚",
+  SOCIAL: "🎉",
+  WELLNESS: "🧘",
+  SPORT: "⚽",
+  CULTURAL: "🎭",
+  MUSIC: "🎵",
+  ENTERTAINMENT: "🎮",
+  VARIETY: "🍕",
+  ART: "🎨",
+  STUDY: "📖",
+  SPORTS: "🏃",
+};
 
 interface MapPin {
   id: string;
@@ -30,59 +73,6 @@ interface MapPin {
   top: number;
   left: number;
 }
-
-const MAP_PINS: MapPin[] = [
-  {
-    id: "p1",
-    emoji: "🎓",
-    label: "Auditorio Alberto",
-    color: "rgba(59, 140, 245, 1)",
-    borderColor: "rgba(59, 140, 245, 0.35)",
-    bgColor: "rgba(59, 140, 245, 0.12)",
-    top: 65,
-    left: 30,
-  },
-  {
-    id: "p2",
-    emoji: "🎮",
-    label: "Sala de Juegos",
-    color: "rgba(35, 165, 89, 1)",
-    borderColor: "rgba(35, 165, 89, 0.35)",
-    bgColor: "rgba(35, 165, 89, 0.12)",
-    top: 120,
-    left: 170,
-  },
-  {
-    id: "p3",
-    emoji: "🏢",
-    label: "Sala de Reuniones",
-    color: "rgba(129, 140, 248, 1)",
-    borderColor: "rgba(129, 140, 248, 0.35)",
-    bgColor: "rgba(129, 140, 248, 0.12)",
-    top: 185,
-    left: 60,
-  },
-  {
-    id: "p4",
-    emoji: "🌿",
-    label: "Jardín Central",
-    color: "rgba(240, 178, 50, 1)",
-    borderColor: "rgba(240, 178, 50, 0.35)",
-    bgColor: "rgba(240, 178, 50, 0.12)",
-    top: 240,
-    left: 210,
-  },
-  {
-    id: "p5",
-    emoji: "🏛️",
-    label: "Aula Máxima",
-    color: "rgba(251, 146, 60, 1)",
-    borderColor: "rgba(251, 146, 60, 0.35)",
-    bgColor: "rgba(251, 146, 60, 0.12)",
-    top: 310,
-    left: 100,
-  },
-];
 
 // Campus map "buildings" as abstract rectangles
 const BUILDINGS = [
@@ -148,8 +138,49 @@ export default function EventsScreen() {
   const { t } = useTranslation();
   const [activeCategory, setActiveCategory] = useState<Category>("Todos");
   const [selectedPin, setSelectedPin] = useState<string | null>(null);
+  const [events, setEvents] = useState<EventMapResponse[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const MAP_WIDTH = SCREEN_WIDTH - 32;
+
+  useEffect(() => {
+    loadEvents();
+  }, []);
+
+  const loadEvents = async () => {
+    try {
+      const data = await eventService.publicMap({ page: 0, size: 50 });
+      setEvents(data.content || []);
+    } catch (err) {
+      console.log("[EVENTS] Load error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredEvents = activeCategory === "Todos"
+    ? events
+    : events.filter(e => CATEGORY_MAP[e.category] === activeCategory);
+
+  const mapPins: MapPin[] = filteredEvents.slice(0, 5).map((e, i) => {
+    const color = CATEGORY_COLORS[e.category] || "rgba(99, 102, 241, 1)";
+    const positions = [
+      { top: 65, left: 30 },
+      { top: 120, left: 170 },
+      { top: 185, left: 60 },
+      { top: 240, left: 210 },
+      { top: 310, left: 100 },
+    ];
+    return {
+      id: e.eventId,
+      emoji: CATEGORY_EMOJI[e.category] || "🎉",
+      label: e.locationName || e.title,
+      color,
+      borderColor: color.replace("1)", "0.35)"),
+      bgColor: color.replace("1)", "0.12)"),
+      ...positions[i],
+    };
+  });
 
   return (
     <SafeAreaView style={styles.root}>
@@ -241,7 +272,7 @@ export default function EventsScreen() {
             ))}
 
             {/* Map pins + labels */}
-            {MAP_PINS.map((pin) => (
+            {mapPins.map((pin) => (
               <React.Fragment key={pin.id}>
                 <MapPinMarker
                   pin={pin}
@@ -258,19 +289,52 @@ export default function EventsScreen() {
 
         {/* Hint text */}
         <Text style={styles.mapHint}>
-          5 eventos en el mapa · toca un pin para ver el detalle
+          {filteredEvents.length} evento{filteredEvents.length !== 1 ? "s" : ""} en el mapa · toca un pin para ver el detalle
         </Text>
+
+        {/* Events list */}
+        {filteredEvents.length > 0 && (
+          <View style={styles.eventsList}>
+            <Text style={styles.eventsListTitle}>Próximos eventos</Text>
+            {filteredEvents.slice(0, 10).map((event) => {
+              const color = CATEGORY_COLORS[event.category] || "rgba(99, 102, 241, 1)";
+              const emoji = CATEGORY_EMOJI[event.category] || "🎉";
+              return (
+                <Pressable
+                  key={event.eventId}
+                  style={styles.eventCard}
+                  onPress={() => {/* TODO: navigate to event detail */}}
+                >
+                  <View style={[styles.eventEmojiWrap, { backgroundColor: color.replace("1)", "0.15)") }]}>
+                    <Text style={styles.eventEmoji}>{emoji}</Text>
+                  </View>
+                  <View style={styles.eventInfo}>
+                    <Text style={styles.eventTitle} numberOfLines={1}>{event.title}</Text>
+                    <Text style={styles.eventLocation} numberOfLines={1}>{event.locationName || "Sin ubicación"}</Text>
+                  </View>
+                  <View style={styles.eventMeta}>
+                    <Text style={[styles.eventParticipants, { color }]}>
+                      {event.currentParticipants}/{event.maxParticipants}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
 
         {/* Selected pin detail card */}
         {selectedPin && (() => {
-          const pin = MAP_PINS.find(p => p.id === selectedPin)!;
+          const pin = mapPins.find(p => p.id === selectedPin);
+          const event = events.find(e => e.eventId === selectedPin);
+          if (!pin || !event) return null;
           return (
             <View style={[styles.pinDetailCard, { borderColor: pin.borderColor, backgroundColor: pin.bgColor }]}>
               <View style={styles.pinDetailLeft}>
                 <Text style={styles.pinDetailEmoji}>{pin.emoji}</Text>
                 <View>
-                  <Text style={[styles.pinDetailLabel, { color: pin.color }]}>{pin.label}</Text>
-                  <Text style={styles.pinDetailSub}>1 evento activo</Text>
+                  <Text style={[styles.pinDetailLabel, { color: pin.color }]}>{event.title}</Text>
+                  <Text style={styles.pinDetailSub}>{event.locationName || "Sin ubicación"}</Text>
                 </View>
               </View>
               <Pressable style={[styles.pinDetailBtn, { borderColor: pin.borderColor }]}>
@@ -571,6 +635,56 @@ const styles = StyleSheet.create({
   },
   pinDetailBtnText: {
     fontSize: 13,
+    fontWeight: "600",
+  },
+
+  // ── Events list ──
+  eventsList: {
+    marginTop: 20,
+  },
+  eventsListTitle: {
+    color: "rgba(255, 255, 255, 1)",
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 12,
+  },
+  eventCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  eventEmojiWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  eventEmoji: {
+    fontSize: 20,
+  },
+  eventInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  eventTitle: {
+    color: "rgba(255, 255, 255, 1)",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  eventLocation: {
+    color: "rgba(90, 90, 104, 1)",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  eventMeta: {
+    alignItems: "flex-end",
+  },
+  eventParticipants: {
+    fontSize: 12,
     fontWeight: "600",
   },
 });

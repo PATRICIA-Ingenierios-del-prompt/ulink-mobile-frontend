@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,10 +10,13 @@ import {
   Platform,
   Alert,
   Image,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { communicationService, type ChatMessage } from "@/services/communicationService";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Message {
   id: string;
@@ -29,23 +32,49 @@ interface Message {
 export default function ChatScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
+  const { userId } = useAuth();
   const [text, setText] = useState("");
   const scrollRef = useRef<ScrollView>(null);
+  const [loading, setLoading] = useState(true);
 
   // Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "m1",
-      sender: `Usuario ${id}`,
-      text: "¡Hola! ¿Cómo estás?",
-      time: "10:02 AM",
-      isMe: false,
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
+
+  useEffect(() => {
+    loadMessages();
+  }, [id]);
+
+  const loadMessages = async () => {
+    if (!id) return;
+    try {
+      const data = await communicationService.getMessages(id as string, 0, 50);
+      const mapped: Message[] = (data.content || []).map((m) => ({
+        id: m.id,
+        sender: m.senderName || "Usuario",
+        text: m.content,
+        time: new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isMe: m.senderId === userId,
+        image: m.type === "IMAGE" ? m.fileUrl : undefined,
+        audioDuration: m.type === "AUDIO" && m.duration ? formatDuration(m.duration) : undefined,
+      }));
+      setMessages(mapped);
+    } catch (err) {
+      console.log("[CHAT] Load error:", err);
+    } finally {
+      setLoading(false);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
+    }
+  };
+
+  const formatDuration = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  };
 
   const handleSend = () => {
     if (text.trim().length === 0) return;
@@ -217,6 +246,9 @@ export default function ChatScreen() {
         </View>
 
         <View style={styles.chatRoot}>
+          {loading ? (
+            <ActivityIndicator size="large" color="rgba(99, 102, 241, 1)" style={{ flex: 1 }} />
+          ) : (
           <ScrollView
             ref={scrollRef}
             style={styles.chatScroll}
@@ -278,6 +310,7 @@ export default function ChatScreen() {
               </View>
             ))}
           </ScrollView>
+          )}
 
           {/* ── Chat Input ── */}
           <View style={styles.chatInputContainer}>

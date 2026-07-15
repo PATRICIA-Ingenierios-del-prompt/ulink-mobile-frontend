@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -13,67 +13,86 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useTranslation } from "@/hooks/useTranslation";
+import { matchingService, type SugerenciaResponse } from "@/services/matchingService";
+import { userService } from "@/services/userService";
+import type { PerfilResponse } from "@/services/types";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-const MATCH_PROFILES = [
-  {
-    id: "1",
-    name: "Carlos Méndez",
-    age: 22,
-    career: "Systems Engineering",
-    year: "4th year",
-    tags: ["Robotics", "Open Source", "Soccer"],
-    compatibility: 87,
-    initials: "CM",
-    university: "ECI",
-    bio: "Building robots, coding solutions, chasing dreams",
-    bgColor1: "rgba(55, 40, 120, 1)",
-    bgColor2: "rgba(20, 15, 60, 1)",
-    accentColor: "rgba(143, 132, 224, 1)",
-    online: true,
-  },
-  {
-    id: "2",
-    name: "Camila Rodríguez",
-    age: 21,
-    career: "Software Design",
-    year: "6th semester",
-    tags: ["React", "Figma", "Machine Learning"],
-    compatibility: 94,
-    initials: "CR",
-    university: "ECI",
-    bio: "Turning designs into reality, one component at a time",
-    bgColor1: "rgba(40, 55, 120, 1)",
-    bgColor2: "rgba(15, 20, 60, 1)",
-    accentColor: "rgba(99, 140, 245, 1)",
-    online: true,
-  },
-  {
-    id: "3",
-    name: "Andrés Torres",
-    age: 23,
-    career: "Electronic Engineering",
-    year: "7th semester",
-    tags: ["IoT", "C++", "Embedded"],
-    compatibility: 79,
-    initials: "AT",
-    university: "ECI",
-    bio: "Wiring the physical world to the digital one",
-    bgColor1: "rgba(35, 80, 55, 1)",
-    bgColor2: "rgba(15, 35, 25, 1)",
-    accentColor: "rgba(50, 180, 100, 1)",
-    online: false,
-  },
+interface MatchProfile {
+  id: string;
+  name: string;
+  age: number;
+  career: string;
+  year: string;
+  tags: string[];
+  compatibility: number;
+  initials: string;
+  university: string;
+  bio: string;
+  bgColor1: string;
+  bgColor2: string;
+  accentColor: string;
+  online: boolean;
+}
+
+const ACCENT_COLORS = [
+  "rgba(143, 132, 224, 1)",
+  "rgba(99, 140, 245, 1)",
+  "rgba(50, 180, 100, 1)",
+  "rgba(255, 107, 157, 1)",
+  "rgba(255, 179, 71, 1)",
 ];
 
 export default function MatchingScreen() {
   const router = useRouter();
   const { t } = useTranslation();
+  const [profiles, setProfiles] = useState<MatchProfile[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const profile = MATCH_PROFILES[currentIndex % MATCH_PROFILES.length];
+  const [loading, setLoading] = useState(true);
+  const profile = profiles[currentIndex % profiles.length];
   const pan = useRef(new Animated.ValueXY()).current;
   const SWIPE_THRESHOLD = 120;
+
+  useEffect(() => {
+    loadProfiles();
+  }, []);
+
+  const loadProfiles = async () => {
+    try {
+      const sugerencias = await matchingService.obtenerSugerencias(20);
+      const hydrated = await Promise.all(
+        sugerencias.map(async (s, i) => {
+          try {
+            const perfil = await userService.getPerfil(s.candidatoId);
+            return {
+              id: s.candidatoId,
+              name: `${perfil.nombre || ""} ${perfil.apellidos || ""}`.trim() || "Usuario",
+              age: 0,
+              career: perfil.carrera || "",
+              year: perfil.semestre ? `${perfil.semestre}° semestre` : "",
+              tags: (perfil.intereses || []).slice(0, 3),
+              compatibility: Math.round(s.score * 100),
+              initials: (perfil.nombre?.[0] || "U").toUpperCase() + (perfil.apellidos?.[0] || "").toUpperCase(),
+              university: "ECI",
+              bio: "",
+              bgColor1: "rgba(55, 40, 120, 1)",
+              bgColor2: "rgba(20, 15, 60, 1)",
+              accentColor: ACCENT_COLORS[i % ACCENT_COLORS.length],
+              online: true,
+            };
+          } catch {
+            return null;
+          }
+        })
+      );
+      setProfiles(hydrated.filter((p): p is MatchProfile => p !== null));
+    } catch (err) {
+      console.log("[MATCHING] Load error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const panResponder = useRef(
     PanResponder.create({
@@ -103,6 +122,10 @@ export default function MatchingScreen() {
   };
 
   const onSwipeComplete = (direction: "left" | "right") => {
+    const decision = direction === "right" ? "LIKE" : "DESCARTE";
+    if (profile) {
+      matchingService.decidir(profile.id, decision).catch(() => {});
+    }
     pan.setValue({ x: 0, y: 0 });
     setCurrentIndex((i) => i + 1);
   };
@@ -157,7 +180,25 @@ export default function MatchingScreen() {
         <Text style={styles.mainTitle}>Matching</Text>
       </View>
 
+      {/* Loading state */}
+      {loading && (
+        <View style={styles.emptyState}>
+          <Ionicons name="sparkles" size={48} color="rgba(99, 102, 241, 0.5)" />
+          <Text style={styles.emptyText}>Buscando personas compatibles...</Text>
+        </View>
+      )}
+
+      {/* Empty state */}
+      {!loading && profiles.length === 0 && (
+        <View style={styles.emptyState}>
+          <Ionicons name="people-outline" size={48} color="rgba(99, 102, 241, 0.5)" />
+          <Text style={styles.emptyText}>No hay sugerencias disponibles</Text>
+          <Text style={styles.emptySubtext}>Vuelve más tarde para descubrir personas nuevas</Text>
+        </View>
+      )}
+
       {/* ── Swipe card ── */}
+      {!loading && profile && (
       <Animated.View style={[styles.cardWrap, cardStyle]} {...panResponder.panHandlers}>
         <View style={styles.card}>
 
@@ -269,6 +310,7 @@ export default function MatchingScreen() {
           </Pressable>
         </View>
       </Animated.View>
+      )}
 
     </SafeAreaView>
   );
@@ -280,6 +322,27 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: "rgba(11, 13, 24, 1)",
+  },
+
+  // ── Empty state ──
+  emptyState: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 40,
+  },
+  emptyText: {
+    color: "rgba(255, 255, 255, 0.85)",
+    fontSize: 18,
+    fontWeight: "600",
+    marginTop: 16,
+    textAlign: "center",
+  },
+  emptySubtext: {
+    color: "rgba(90, 90, 104, 1)",
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: "center",
   },
 
   // ── Top bar ──

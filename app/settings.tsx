@@ -6,15 +6,18 @@ import {
   ScrollView,
   Pressable,
   Switch,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useTranslation, Language } from "@/hooks/useTranslation";
+import { useTranslation } from "@/hooks/useTranslation";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { t, language, setLanguage } = useTranslation();
+  const { logout } = useAuth();
   
   // Toggles state
   const [matchesNotif, setMatchesNotif] = useState(true);
@@ -191,7 +194,26 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("account_session")}</Text>
           <View style={styles.buttonRow}>
-            <Pressable style={styles.actionButton}>
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => {
+                Alert.alert(
+                  "Cerrar sesión",
+                  "¿Estás seguro que deseas cerrar sesión?",
+                  [
+                    { text: "Cancelar", style: "cancel" },
+                    {
+                      text: "Cerrar sesión",
+                      style: "destructive",
+                      onPress: () => {
+                        logout();
+                        router.replace("/welcome-login");
+                      },
+                    },
+                  ]
+                );
+              }}
+            >
               <Ionicons name="log-out-outline" size={18} color="rgba(255, 100, 100, 1)" />
               <Text style={styles.actionButtonTextDanger}>{t("logout")}</Text>
             </Pressable>

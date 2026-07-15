@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Image } from "expo-image";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
@@ -13,102 +13,22 @@ import { useRouter } from "expo-router";
 
 import { GlassNavBar } from "@/components/glass-nav-bar";
 import { useTranslation } from "@/hooks/useTranslation";
+import { parcheService } from "@/services/parcheService";
+import { useAuth } from "@/hooks/useAuth";
+import type { ParcheSummaryResponse } from "@/services/types";
 
-const ACTIVITY_DATA = [
-  {
-    initials: "CR",
-    name: "Camila R.",
-    action: "Joined Hackathon ECI 2028",
-    time: "5 min",
-    color: "rgba(124, 106, 245, 1)",
-    colorBorder: "rgba(124, 106, 245, 0.16)",
-    colorBg: "rgba(124, 106, 245, 0.09)",
-    online: true,
-  },
-  {
-    initials: "AT",
-    name: "Andrés T.",
-    action: "Joined IEEE Student Branch",
-    time: "18 min",
-    color: "rgba(59, 140, 245, 1)",
-    colorBorder: "rgba(59, 140, 245, 0.16)",
-    colorBg: "rgba(59, 140, 245, 0.09)",
-    online: true,
-  },
-  {
-    initials: "SM",
-    name: "Sofía M.",
-    action: "Shared Mindfulness Workshop",
-    time: "34 min",
-    color: "rgba(35, 165, 89, 1)",
-    colorBorder: "rgba(35, 165, 89, 0.16)",
-    colorBg: "rgba(35, 165, 89, 0.09)",
-    online: true,
-  },
-  {
-    initials: "FA",
-    name: "Felipe A.",
-    action: "Reached Level 12 at ECI",
-    time: "1 h",
-    color: "rgba(240, 178, 50, 1)",
-    colorBorder: "rgba(240, 178, 50, 0.16)",
-    colorBg: "rgba(240, 178, 50, 0.09)",
-    online: false,
-  },
-  {
-    initials: "LG",
-    name: "Laura G.",
-    action: "Created Cinema Night event",
-    time: "2 h",
-    color: "rgba(242, 63, 67, 1)",
-    colorBorder: "rgba(242, 63, 67, 0.16)",
-    colorBg: "rgba(242, 63, 67, 0.09)",
-    online: false,
-  },
-];
-
-const SERVERS_DATA = [
-  {
-    initials: "HE",
-    name: "Hackathon ECI",
-    action: "New challenge posted",
-    time: "12 min",
-    color: "rgba(99, 102, 241, 1)",
-    colorBorder: "rgba(99, 102, 241, 0.16)",
-    colorBg: "rgba(99, 102, 241, 0.09)",
-    online: true,
-  },
-  {
-    initials: "IE",
-    name: "IEEE Student Branch",
-    action: "Meeting scheduled for Friday",
-    time: "45 min",
-    color: "rgba(59, 140, 245, 1)",
-    colorBorder: "rgba(59, 140, 245, 0.16)",
-    colorBg: "rgba(59, 140, 245, 0.09)",
-    online: true,
-  },
-  {
-    initials: "MW",
-    name: "Mindfulness Workshop",
-    action: "New session available",
-    time: "1 h",
-    color: "rgba(35, 165, 89, 1)",
-    colorBorder: "rgba(35, 165, 89, 0.16)",
-    colorBg: "rgba(35, 165, 89, 0.09)",
-    online: true,
-  },
-  {
-    initials: "CN",
-    name: "Cinema Night",
-    action: "Poll: next movie pick",
-    time: "3 h",
-    color: "rgba(242, 63, 67, 1)",
-    colorBorder: "rgba(242, 63, 67, 0.16)",
-    colorBg: "rgba(242, 63, 67, 0.09)",
-    online: false,
-  },
-];
+interface FeedItem {
+  id: string;
+  initials: string;
+  name: string;
+  action: string;
+  time: string;
+  color: string;
+  colorBorder: string;
+  colorBg: string;
+  online: boolean;
+  parcheId?: string;
+}
 
 function ClockIcon({ size = 12, color = "rgba(143, 132, 224, 1)" }) {
   return (
@@ -152,7 +72,7 @@ function ActivityRow({
   onPress,
   onAvatarPress,
 }: {
-  item: (typeof ACTIVITY_DATA)[0];
+  item: FeedItem;
   isLast: boolean;
   onPress?: () => void;
   onAvatarPress?: () => void;
@@ -213,7 +133,78 @@ function ActivityRow({
 export default function HomeScreen() {
   const router = useRouter();
   const { t } = useTranslation();
+  const { userName } = useAuth();
   const [activeFilter, setActiveFilter] = useState<"friends" | "servers">("friends");
+  const [myParches, setMyParches] = useState<FeedItem[]>([]);
+  const [publicParches, setPublicParches] = useState<FeedItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [mine, publicData] = await Promise.all([
+        parcheService.mine().catch(() => ({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 0, numberOfElements: 0, empty: true, first: true, last: true })),
+        parcheService.byVisibility("PUBLIC").catch(() => ({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 0, numberOfElements: 0, empty: true, first: true, last: true })),
+      ]);
+
+      const myItems: FeedItem[] = (mine.content || []).map((p: ParcheSummaryResponse) => ({
+        id: p.parcheId,
+        initials: p.name.substring(0, 2).toUpperCase(),
+        name: p.name,
+        action: p.description || "Tu parche",
+        time: "",
+        color: getCategoryColor(p.category),
+        colorBorder: getCategoryColorBorder(p.category),
+        colorBg: getCategoryColorBg(p.category),
+        online: true,
+        parcheId: p.parcheId,
+      }));
+
+      const publicItems: FeedItem[] = (publicData.content || []).map((p: ParcheSummaryResponse) => ({
+        id: p.parcheId,
+        initials: p.name.substring(0, 2).toUpperCase(),
+        name: p.name,
+        action: `${p.memberCount || 0} miembros`,
+        time: "",
+        color: getCategoryColor(p.category),
+        colorBorder: getCategoryColorBorder(p.category),
+        colorBg: getCategoryColorBg(p.category),
+        online: p.memberCount > 0,
+        parcheId: p.parcheId,
+      }));
+
+      setMyParches(myItems);
+      setPublicParches(publicItems);
+    } catch (err) {
+      console.log("[HOME] Load error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getCategoryColor = (cat?: string) => {
+    const colors: Record<string, string> = {
+      MUSICA: "rgba(255, 107, 157, 1)",
+      DEPORTE: "rgba(127, 231, 196, 1)",
+      ESTUDIO: "rgba(108, 99, 255, 1)",
+      GASTRONOMIA: "rgba(255, 179, 71, 1)",
+      GAMING: "rgba(91, 200, 255, 1)",
+      ARTE: "rgba(167, 139, 250, 1)",
+      VARIETY: "rgba(99, 102, 241, 1)",
+    };
+    return colors[cat || ""] || "rgba(99, 102, 241, 1)";
+  };
+
+  const getCategoryColorBorder = (cat?: string) => {
+    return getCategoryColor(cat).replace("1)", "0.16)");
+  };
+
+  const getCategoryColorBg = (cat?: string) => {
+    return getCategoryColor(cat).replace("1)", "0.09)");
+  };
 
   // Get greeting based on time of day
   const getGreeting = () => {
@@ -231,7 +222,7 @@ export default function HomeScreen() {
     year: "numeric",
   });
 
-  const displayData = activeFilter === "friends" ? ACTIVITY_DATA : SERVERS_DATA;
+  const displayData = activeFilter === "friends" ? myParches : publicParches;
 
   return (
     <SafeAreaView style={styles.root}>
@@ -264,7 +255,7 @@ export default function HomeScreen() {
             <View style={styles.greetingTextWrap}>
               <Text style={styles.greetingText}>
                 {getGreeting()},
-                {"\n"}Juan
+                {"\n"}{userName || "Usuario"}
               </Text>
             </View>
             <Pressable style={styles.bigAvatarWrap} onPress={() => router.push("/profile")}>
@@ -315,11 +306,11 @@ export default function HomeScreen() {
         <View style={styles.activityList}>
           {displayData.map((item, index) => (
             <ActivityRow
-              key={item.initials}
+              key={item.id}
               item={item}
               isLast={index === displayData.length - 1}
-              onPress={() => router.push(activeFilter === "servers" ? "/(tabs)/parche" : `/chat/${item.name.replace(' ', '_')}`)}
-              onAvatarPress={() => router.push(activeFilter === "servers" ? "/(tabs)/parche" : `/user/${item.name.replace(' ', '_')}`)}
+              onPress={() => item.parcheId && router.push(`/(tabs)/parche?parcheId=${item.parcheId}`)}
+              onAvatarPress={() => item.parcheId && router.push(`/(tabs)/parche?parcheId=${item.parcheId}`)}
             />
           ))}
         </View>

@@ -517,7 +517,7 @@ export default function ParchesScreen() {
                   styles.createServerBtn,
                   pressed && { opacity: 0.8 },
                 ]}
-                onPress={() => Alert.alert("Próximamente", "La creación de parches estará disponible pronto.")}
+                onPress={() => router.push("/create-parche" as any)}
               >
                 <View style={styles.createServerIcon}>
                   <Ionicons name="add" size={22} color="rgba(129, 140, 248, 1)" />
