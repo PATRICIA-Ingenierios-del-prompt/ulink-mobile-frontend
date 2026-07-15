@@ -5,90 +5,69 @@ Features present in the web frontend (`PATRICIA-FRONTEND`) but missing or incomp
 ---
 
 ## 1. Toast Notification System
-**Status:** Missing
-**Web:** `ToastSystem.tsx` — 7 toast types (match, evento, chat, reporte, logro, xp, info) with auto-dismiss, progress bar, stacking, and animated enter/exit. Global `addToast()` API callable from anywhere.
-**Mobile:** No toast system. Errors/success only shown via `Alert.alert()`.
+**Status:** ✅ Done
+**Mobile:** `components/ToastSystem.tsx` — 7 toast types with global `addToast()` API.
 
 ## 2. Notification Center
-**Status:** Missing
-**Web:** `NotificationsView` — fetches match requests from `matchingService.solicitudesRecibidas()`, displays as a scrollable list with emoji icons, unread indicators, and "mark all as read" button. Bell icon badge in top bar.
-**Mobile:** No notification center screen or bell badge.
+**Status:** ✅ Done
+**Mobile:** `app/notifications.tsx` — fetches match requests, bell icon on home header.
 
 ## 3. Collaborative Canvas Real-Time Sync
-**Status:** UI exists, wiring missing
-**Web:** `useBoard` hook + `BoardWebSocketService` — connects via STOMP to `/ws/board`, sends/receives strokes in real-time, deduplicates own strokes, syncs remote cursors.
-**Mobile:** `boardSocket.ts` service exists with full STOMP client, but the lienzo canvas in `parche.tsx` only does local SVG drawing. No socket connection.
+**Status:** ✅ Done
+**Mobile:** `hooks/useBoard.ts` — STOMP WebSocket real-time sync for lienzo canvas.
 
 ## 4. Campus Map / Location Sharing
-**Status:** Missing
-**Web:** `LocationView` — Google Maps integration centered on campus, real-time user locations via `locationSocket.ts`, custom markers for users/parches/events.
-**Mobile:** No map screen. `geoSocket.ts` exists for position tracking but no UI.
+**Status:** ✅ Done
+**Mobile:** `app/location.tsx` — react-native-maps with real-time positions, incident reports.
 
 ## 5. Reports & Moderation
-**Status:** Missing
-**Web:** User reporting with categories (harassment, spam, offensive content), report context from parches, `ReportsContext` for admin dashboard.
-**Mobile:** No reporting UI or service.
+**Status:** ✅ Done
+**Mobile:** `context/ReportsContext.tsx` + `components/ReportModal.tsx` — wired into parche members.
 
 ## 6. Admin Panel
-**Status:** Missing
-**Web:** Gated by whitelisted emails. Dashboard with platform stats, user/parche/event management, report/support review.
-**Mobile:** No admin screen or access control.
+**Status:** ✅ Done
+**Mobile:** `app/admin.tsx` — gated by `isAdminEmail()`, stats/reports/support tabs.
 
 ## 7. Color Blindness Accessibility
-**Status:** Missing
-**Web:** SVG `feColorMatrix` filters for protanopia/deuteranopia/tritanopia. `VisionSelector` dropdown in sidebar. Filters applied to entire UI.
-**Mobile:** Settings has a "Color Vision" option but no actual filter implementation.
+**Status:** ✅ Done
+**Mobile:** `context/AccessibilityContext.tsx` + `components/ColorBlindFilters.tsx` — SVG feColorMatrix filters, wired to settings.
 
 ## 8. Dyslexia Mode
-**Status:** Missing
-**Web:** Toggles font to Lexend/Atkinson Hyperlegible, increases body size, letter-spacing, line-height, word-spacing. Follows BDA guidelines.
-**Mobile:** Not implemented.
+**Status:** ✅ Done
+**Mobile:** `components/DyslexiaText.tsx` — Lexend font via @expo-google-fonts, wired to settings.
 
 ## 9. Pastel Theme
-**Status:** Missing
-**Web:** Third theme option with softer pastel colors alongside dark/light modes.
-**Mobile:** Only dark theme.
+**Status:** N/A — Does not exist in web frontend (inaccurate gap doc).
 
 ## 10. Custom Accent Color Picker
-**Status:** Missing
-**Web:** Users choose from `COLOR_PRESETS` array of accent colors. Persisted to localStorage.
-**Mobile:** Fixed indigo accent color.
+**Status:** N/A — Does not exist in web frontend (inaccurate gap doc).
 
 ## 11. Match List View
-**Status:** Partially missing
-**Web:** Grid of all mutual matches as avatar cards with names. Clicking opens chat.
-**Mobile:** Explore screen shows swipe cards but no dedicated match list view.
+**Status:** ✅ Done
+**Mobile:** `app/matches.tsx` — 2-column grid, hydrated profiles, chat/perfil buttons.
 
 ## 12. Super Like
-**Status:** Missing
-**Web:** Special "super like" action on match cards (distinct from regular like).
-**Mobile:** Only like/pass swipe actions.
+**Status:** N/A — Does not exist in web frontend (star button does same as LIKE).
 
 ## 13. Mood Tracking (Bienestar)
-**Status:** Missing
-**Web:** Log and track daily mood in the bienestar module.
-**Mobile:** Bienestar has chatbot, journal, sounds, breathing — but no mood tracking.
+**Status:** ✅ Done
+**Mobile:** `components/bienestar/Bienestar2.tsx` — weekly mood bar chart, streak counter, mood values.
 
 ## 14. Legal & Support
-**Status:** Missing
-**Web:** Terms of Service, Privacy Policy, Help Center (support form), Contact modals.
-**Mobile:** No legal content screens or support form.
+**Status:** ✅ Done
+**Mobile:** `app/legal.tsx` — 4 tabs (Terms, Privacy, Help Center form, Contact). Settings links wired. Login screen links added.
 
 ## 15. Animated Background
-**Status:** Missing
-**Web:** Canvas-rendered floating bubbles and wave lines on landing page with dark/light mode variants.
-**Mobile:** Static gradient backgrounds only.
+**Status:** ✅ Done
+**Mobile:** `components/AnimatedBackground.tsx` — floating gradient circles + wave lines via react-native-reanimated. Added to login and onboarding screens.
 
 ## 16. Photo Album
-**Status:** Missing
-**Web:** Shared photo albums for parches/events with upload, grid gallery, lightbox.
-**Mobile:** No album feature.
+**Status:** N/A — Does not exist in web frontend (inaccurate gap doc).
 
 ## 17. Image Fallback Component
-**Status:** Missing
-**Web:** `ImageWithFallback` — shows gray SVG placeholder on load error.
-**Mobile:** No graceful image error handling.
+**Status:** ✅ Done
+**Mobile:** `components/ImageWithFallback.tsx` — shows initials on gradient on load error.
 
 ---
 
-*Generated by comparing `PATRICIA-FRONTEND` (web) vs `ulink` (mobile) on 2026-07-15.*
+*Generated by comparing `PATRICIA-FRONTEND` (web) vs `ulink` (mobile) on 2026-07-15. Updated 2026-07-15.*

@@ -245,11 +245,11 @@ export default function SettingsScreen() {
           </View>
           
           <View style={[styles.card, { marginTop: 12 }]}>
-            <SettingLink icon="document-text-outline" title={t("terms")} />
+            <SettingLink icon="document-text-outline" title={t("terms")} onPress={() => router.push("/legal")} />
             <View style={styles.divider} />
-            <SettingLink icon="shield-checkmark-outline" title={t("privacy_policy")} />
+            <SettingLink icon="shield-checkmark-outline" title={t("privacy_policy")} onPress={() => router.push("/legal")} />
             <View style={styles.divider} />
-            <SettingLink icon="help-circle-outline" title={t("help_center")} />
+            <SettingLink icon="help-circle-outline" title={t("help_center")} onPress={() => router.push("/legal")} />
           </View>
         </View>
         
@@ -281,9 +281,9 @@ const SettingRow = React.memo(({ icon, title, desc, control }: any) => {
   );
 });
 
-const SettingLink = React.memo(({ icon, title }: any) => {
+const SettingLink = React.memo(({ icon, title, onPress }: any) => {
   return (
-    <Pressable style={styles.row}>
+    <Pressable style={styles.row} onPress={onPress}>
       <View style={styles.iconBox}>
         <Ionicons name={icon} size={18} color="rgba(129, 140, 248, 1)" />
       </View>

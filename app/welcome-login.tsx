@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useAuth } from "../hooks/useAuth";
 import { authService, getMicrosoftAuthUrl, MS_REDIRECT_URI } from "../services/authService";
+import { AnimatedBackground } from "@/components/AnimatedBackground";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -121,6 +122,7 @@ export default function WelcomeLoginScreen() {
 
   return (
     <SafeAreaView style={styles.root}>
+      <AnimatedBackground />
       <View style={styles.container}>
         <WelcomeHero />
         <View style={styles.content}>
@@ -231,9 +233,16 @@ export default function WelcomeLoginScreen() {
             <Text style={styles.skipButtonText}>Skip (Auth service down)</Text>
           </Pressable>
 
-          <Text style={styles.termsText}>
-            By continuing you agree to our Terms and Privacy Policy
-          </Text>
+          <View style={styles.termsRow}>
+            <Text style={styles.termsText}>By continuing you agree to our </Text>
+            <Pressable onPress={() => router.push("/legal")}>
+              <Text style={styles.termsLink}>Terms</Text>
+            </Pressable>
+            <Text style={styles.termsText}> and </Text>
+            <Pressable onPress={() => router.push("/legal")}>
+              <Text style={styles.termsLink}>Privacy Policy</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </SafeAreaView>
@@ -356,12 +365,23 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     textAlign: "center",
   },
-  termsText: {
+  termsRow: {
     marginTop: 32,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  termsText: {
     color: "rgba(90, 90, 104, 1)",
-    textAlign: "center",
     fontSize: 12,
     fontWeight: "400",
+    lineHeight: 19.5,
+  },
+  termsLink: {
+    color: "#6C63FF",
+    fontSize: 12,
+    fontWeight: "600",
     lineHeight: 19.5,
     textDecorationLine: "underline",
   },

@@ -133,6 +133,7 @@ export default function RootLayout() {
             <Stack.Screen name="admin" options={{ headerShown: false }} />
             <Stack.Screen name="location" options={{ headerShown: false }} />
             <Stack.Screen name="matches" options={{ headerShown: false }} />
+            <Stack.Screen name="legal" options={{ headerShown: false }} />
             <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
           </Stack>
           <StatusBar style="auto" />
