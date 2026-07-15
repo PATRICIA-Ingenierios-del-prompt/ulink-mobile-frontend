@@ -266,6 +266,16 @@ export default function HomeScreen() {
                 color="rgba(143, 132, 224, 0.75)"
               />
             </Pressable>
+            <Pressable
+              style={styles.bellBtn}
+              onPress={() => router.push("/matches")}
+            >
+              <Ionicons
+                name="heart-outline"
+                size={22}
+                color="rgba(143, 132, 224, 0.75)"
+              />
+            </Pressable>
             <Image
               source={require("../assets/images/logoNuevoOscuro.png")}
               contentFit="contain"

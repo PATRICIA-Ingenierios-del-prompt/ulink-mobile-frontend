@@ -13,22 +13,22 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useAuth } from "@/hooks/useAuth";
+import { useAccessibility, type VisionMode } from "@/context/AccessibilityContext";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { t, language, setLanguage } = useTranslation();
   const { logout } = useAuth();
+  const { visionMode, setVisionMode, dyslexiaMode, setDyslexiaMode } = useAccessibility();
   
   // Toggles state
   const [matchesNotif, setMatchesNotif] = useState(true);
   const [messagesNotif, setMessagesNotif] = useState(true);
   const [eventsNotif, setEventsNotif] = useState(true);
   const [incognitoMode, setIncognitoMode] = useState(false);
-  const [easyReading, setEasyReading] = useState(false);
   
   // Selections
   const [profileVis, setProfileVis] = useState<"public" | "private">("public");
-  const [colorVision, setColorVision] = useState("normal");
 
   return (
     <SafeAreaView style={styles.root}>
@@ -158,21 +158,21 @@ export default function SettingsScreen() {
               
               <View style={styles.radioGroup}>
                 <RadioOption 
-                  selected={colorVision === "normal"} 
-                  onPress={() => setColorVision("normal")}
+                  selected={visionMode === "normal"} 
+                  onPress={() => setVisionMode("normal")}
                   title={t("normal_vision")} 
                   desc={t("normal_vision_desc")}
                   activeIcon="checkmark-circle"
                 />
                 <RadioOption 
-                  selected={colorVision === "deuteranopia"} 
-                  onPress={() => setColorVision("deuteranopia")}
+                  selected={visionMode === "deuteranopia"} 
+                  onPress={() => setVisionMode("deuteranopia")}
                   title={t("deuteranopia")} 
                   desc={t("deuteranopia_desc")}
                 />
                 <RadioOption 
-                  selected={colorVision === "protanopia"} 
-                  onPress={() => setColorVision("protanopia")}
+                  selected={visionMode === "protanopia"} 
+                  onPress={() => setVisionMode("protanopia")}
                   title={t("protanopia")} 
                   desc={t("protanopia_desc")}
                 />
@@ -185,7 +185,7 @@ export default function SettingsScreen() {
               icon="text-outline" 
               title={t("easy_reading")} 
               desc={t("easy_reading_desc")}
-              control={<CustomSwitch value={easyReading} onValueChange={setEasyReading} />}
+              control={<CustomSwitch value={dyslexiaMode} onValueChange={setDyslexiaMode} />}
             />
           </View>
         </View>

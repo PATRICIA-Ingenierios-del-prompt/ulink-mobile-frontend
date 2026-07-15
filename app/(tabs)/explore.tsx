@@ -16,6 +16,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { matchingService, type SugerenciaResponse } from "@/services/matchingService";
 import { userService } from "@/services/userService";
 import type { PerfilResponse } from "@/services/types";
+import { ACCENT_COLORS } from "@/lib/colors";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -35,14 +36,6 @@ interface MatchProfile {
   accentColor: string;
   online: boolean;
 }
-
-const ACCENT_COLORS = [
-  "rgba(143, 132, 224, 1)",
-  "rgba(99, 140, 245, 1)",
-  "rgba(50, 180, 100, 1)",
-  "rgba(255, 107, 157, 1)",
-  "rgba(255, 179, 71, 1)",
-];
 
 export default function MatchingScreen() {
   const router = useRouter();

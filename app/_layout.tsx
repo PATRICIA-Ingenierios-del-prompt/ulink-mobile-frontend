@@ -1,15 +1,19 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
+import { ActivityIndicator, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
+import { useFonts, Lexend_400Regular, Lexend_500Medium, Lexend_600SemiBold, Lexend_700Bold } from '@expo-google-fonts/lexend';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LanguageProvider } from '@/hooks/useTranslation';
 import { AuthProvider, AuthContext } from '@/context/AuthContext';
 import { ReportsProvider } from '@/context/ReportsContext';
+import { AccessibilityProvider } from '@/context/AccessibilityContext';
+import { ColorBlindFilterDefs } from '@/components/ColorBlindFilters';
 import { ToastContainer } from '@/components/ToastSystem';
 
 export const unstable_settings = {
@@ -85,15 +89,31 @@ function NotificationObserver() {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const [fontsLoaded] = useFonts({
+    Lexend_400Regular,
+    Lexend_500Medium,
+    Lexend_600SemiBold,
+    Lexend_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0F0C23" }}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+      </View>
+    );
+  }
 
   return (
     <LanguageProvider>
       <AuthProvider>
         <ReportsProvider>
-          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <DeepLinkHandler />
-            <NotificationObserver />
-            <ToastContainer />
+          <AccessibilityProvider>
+            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+              <ColorBlindFilterDefs />
+              <DeepLinkHandler />
+              <NotificationObserver />
+              <ToastContainer />
           <Stack>
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="welcome-login" options={{ headerShown: false }} />
@@ -112,10 +132,12 @@ export default function RootLayout() {
             <Stack.Screen name="notifications" options={{ headerShown: false }} />
             <Stack.Screen name="admin" options={{ headerShown: false }} />
             <Stack.Screen name="location" options={{ headerShown: false }} />
+            <Stack.Screen name="matches" options={{ headerShown: false }} />
             <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
           </Stack>
           <StatusBar style="auto" />
-        </ThemeProvider>
+          </ThemeProvider>
+          </AccessibilityProvider>
         </ReportsProvider>
       </AuthProvider>
     </LanguageProvider>
