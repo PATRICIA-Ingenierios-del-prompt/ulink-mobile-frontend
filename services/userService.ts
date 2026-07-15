@@ -1,4 +1,5 @@
 import { apiClient } from "./apiClient";
+import { withCache } from "./cache";
 import type {
   PerfilResponse,
   ActualizarPerfilPayload,
@@ -9,10 +10,11 @@ const BASE = "/api/v1/usuarios";
 
 export const userService = {
   async getPerfil(userId: string): Promise<PerfilResponse> {
-    const { data } = await apiClient.get<PerfilResponse>(
-      `${BASE}/${userId}/perfil`
+    return withCache(
+      `user:perfil:${userId}`,
+      () => apiClient.get<PerfilResponse>(`${BASE}/${userId}/perfil`).then((r) => r.data),
+      300_000 // 5 min — profiles rarely change mid-session
     );
-    return data;
   },
 
   async updatePerfil(

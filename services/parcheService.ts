@@ -1,4 +1,5 @@
 import { apiClient } from "./apiClient";
+import { withCache, cache } from "./cache";
 import type {
   CreateInviteRequest,
   CreateParcheRequest,
@@ -18,20 +19,23 @@ import type {
 const BASE = "/api/parches";
 const INVITES = "/api/invites";
 
+// Reduced to 30 so the first render is fast; load more pages on demand
 const pageParams = (p?: Pageable) => ({
   page: p?.page ?? 0,
-  size: p?.size ?? 200,
+  size: p?.size ?? 30,
 });
 
 export const parcheService = {
   /* ── mutations ── */
   async create(body: CreateParcheRequest): Promise<CreateParcheResponse> {
     const { data } = await apiClient.post<CreateParcheResponse>(BASE, body);
+    cache.invalidatePrefix("parches:"); // bust cached lists after create
     return data;
   },
 
   async remove(parcheId: UUID): Promise<void> {
     await apiClient.delete(`${BASE}/${parcheId}`);
+    cache.invalidatePrefix("parches:"); // bust cached lists after delete
   },
 
   async join(parcheId: UUID): Promise<void> {
@@ -57,22 +61,24 @@ export const parcheService = {
     category: ParcheCategory,
     page?: Pageable
   ): Promise<Page<ParcheSummaryResponse>> {
-    const { data } = await apiClient.get<Page<ParcheSummaryResponse>>(
-      `${BASE}/category`,
-      { params: { category, ...pageParams(page) } }
+    const p = pageParams(page);
+    return withCache(
+      `parches:cat:${category}:${p.page}`,
+      () => apiClient.get<Page<ParcheSummaryResponse>>(`${BASE}/category`, { params: { category, ...p } }).then((r) => r.data),
+      30_000 // 30 s
     );
-    return data;
   },
 
   async byVisibility(
     visibility: Visibility,
     page?: Pageable
   ): Promise<Page<ParcheSummaryResponse>> {
-    const { data } = await apiClient.get<Page<ParcheSummaryResponse>>(
-      `${BASE}/visibility`,
-      { params: { visibility, ...pageParams(page) } }
+    const p = pageParams(page);
+    return withCache(
+      `parches:vis:${visibility}:${p.page}`,
+      () => apiClient.get<Page<ParcheSummaryResponse>>(`${BASE}/visibility`, { params: { visibility, ...p } }).then((r) => r.data),
+      30_000
     );
-    return data;
   },
 
   async openSpots(
@@ -99,11 +105,12 @@ export const parcheService = {
   async mine(
     page?: Pageable
   ): Promise<Page<ParcheSummaryResponse>> {
-    const { data } = await apiClient.get<Page<ParcheSummaryResponse>>(
-      `${BASE}/me`,
-      { params: pageParams(page) }
+    const p = pageParams(page);
+    return withCache(
+      `parches:mine:${p.page}`,
+      () => apiClient.get<Page<ParcheSummaryResponse>>(`${BASE}/me`, { params: p }).then((r) => r.data),
+      45_000 // 45 s — user's own parches change less often
     );
-    return data;
   },
 
   /* ── invites ── */

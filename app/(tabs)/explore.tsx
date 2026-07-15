@@ -58,9 +58,9 @@ export default function MatchingScreen() {
     loadProfiles();
   }, []);
 
-  const loadProfiles = async () => {
+  const loadProfiles = async (append = false) => {
     try {
-      const sugerencias = await matchingService.obtenerSugerencias(20);
+      const sugerencias = await matchingService.obtenerSugerencias(8); // Reduced from 20 to 8 for N+1 queries optimization
       const hydrated = await Promise.all(
         sugerencias.map(async (s, i) => {
           try {
@@ -86,7 +86,15 @@ export default function MatchingScreen() {
           }
         })
       );
-      setProfiles(hydrated.filter((p): p is MatchProfile => p !== null));
+      
+      const newProfiles = hydrated.filter((p): p is MatchProfile => p !== null);
+      setProfiles((prev) => {
+        if (append) {
+          const existingIds = new Set(prev.map((p) => p.id));
+          return [...prev, ...newProfiles.filter((p) => !existingIds.has(p.id))];
+        }
+        return newProfiles;
+      });
     } catch (err) {
       console.log("[MATCHING] Load error:", err);
     } finally {
@@ -127,6 +135,12 @@ export default function MatchingScreen() {
       matchingService.decidir(profile.id, decision).catch(() => {});
     }
     pan.setValue({ x: 0, y: 0 });
+    
+    // Prefetch next batch if close to running out
+    if (currentIndex + 2 >= profiles.length) {
+      loadProfiles(true);
+    }
+    
     setCurrentIndex((i) => i + 1);
   };
 
