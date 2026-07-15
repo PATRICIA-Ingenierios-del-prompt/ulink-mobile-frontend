@@ -18,6 +18,7 @@ export default function TabLayout() {
       >
         <Tabs.Screen name="home" />
         <Tabs.Screen name="explore" />
+        <Tabs.Screen name="friends" />
         <Tabs.Screen name="parches" />
         <Tabs.Screen name="events" />
         {/* Hidden from tab bar — navigated to via router.push */}

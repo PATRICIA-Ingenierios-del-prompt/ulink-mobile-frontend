@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Animated, {
   useSharedValue,
@@ -22,6 +22,9 @@ function formatTimer(seconds: number) {
 
 export default function CallScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ name?: string; initials?: string }>();
+  const calleeName = params.name || "Amigo";
+  const calleeInitials = params.initials || "A";
   const [micActive, setMicActive] = useState(false);
   const [speakerActive, setSpeakerActive] = useState(true);
   const [callSeconds, setCallSeconds] = useState(0);
