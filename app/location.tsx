@@ -132,6 +132,7 @@ export default function LocationScreen() {
         name={selectedEvent.name}
         presetCenter={selectedEvent.center}
         onBack={() => setSelectedEvent(null)}
+        myId={myId ?? undefined}
       />
     );
   }
@@ -244,11 +245,13 @@ function LiveMap({
   name,
   presetCenter,
   onBack,
+  myId,
 }: {
   eventId: string;
   name: string;
   presetCenter: { latitude: number; longitude: number } | null;
   onBack: () => void;
+  myId?: string;
 }) {
   const [center, setCenter] = useState(presetCenter ?? ECI_CENTER);
   const [positions, setPositions] = useState<Map<string, LiveParticipant>>(
@@ -342,8 +345,8 @@ function LiveMap({
     };
   }, [eventId]);
 
-  const participantList = [...positions.values()].sort((a, b) =>
-    (a.username ?? "").localeCompare(b.username ?? "")
+  const participantList = [...positions.values()].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   );
 
   const markerColors = [
@@ -362,38 +365,30 @@ function LiveMap({
         markerColors.length
     ];
 
+  const stateColor = socketState === "up" ? "#7FE7C4" : socketState === "connecting" ? "#FFB347" : "#FF6B9D";
+  const stateLabel = socketState === "up" ? "En vivo" : socketState === "connecting" ? "Conectando…" : "Sin conexión";
+
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={["rgba(21,17,48,0.95)", "rgba(21,17,48,0.8)"]}
-        style={styles.mapOverlay}
-      />
       <View style={styles.mapHeader}>
         <Pressable onPress={onBack} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {name}
-          </Text>
-          <View style={styles.statusRow}>
-            <View
-              style={[
-                styles.statusDot,
-                {
-                  backgroundColor:
-                    socketState === "up" ? "#23A559" : socketState === "connecting" ? "#F0B232" : "#5A5A68",
-                },
-              ]}
-            />
-            <Text style={styles.statusText}>
-              {socketState === "up"
-                ? "Conectado"
-                : socketState === "connecting"
-                ? "Conectando…"
-                : "Desconectado"}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {name}
             </Text>
+            <View style={[styles.liveBadge, { backgroundColor: `${stateColor}25` }]}>
+              <Ionicons name="radio" size={10} color={stateColor} />
+              <Text style={[styles.liveBadgeText, { color: stateColor }]}>
+                {stateLabel}
+              </Text>
+            </View>
           </View>
+          <Text style={styles.participantSubHeader}>
+            {positions.size} participante{positions.size !== 1 ? "s" : ""} en el mapa
+          </Text>
         </View>
         <Pressable
           onPress={() => setShowReport(true)}
@@ -401,6 +396,14 @@ function LiveMap({
         >
           <Ionicons name="alert-circle" size={20} color="#FF4D6A" />
         </Pressable>
+      </View>
+
+      {/* Privacy notice */}
+      <View style={styles.privacyBanner}>
+        <Ionicons name="shield-checkmark" size={14} color="#7FE7C4" />
+        <Text style={styles.privacyText}>
+          Las ubicaciones son efímeras y cifradas. Solo se muestran como puntos en el mapa durante el evento; nadie ve coordenadas exactas.
+        </Text>
       </View>
 
       <MapView
@@ -447,10 +450,16 @@ function LiveMap({
       {/* Participant list */}
       {showParticipants && (
         <View style={styles.participantPanel}>
-          <Text style={styles.panelTitle}>Participantes en línea</Text>
-          <ScrollView style={{ maxHeight: 200 }} showsVerticalScrollIndicator={false}>
+          <Text style={styles.panelTitle}>Participantes</Text>
+          {participantList.length === 0 && (
+            <Text style={styles.emptyPanelText}>
+              Nadie está transmitiendo ubicación todavía.
+            </Text>
+          )}
+          <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
             {participantList.map((p) => {
               const tc = timeAgo(p.timestamp);
+              const isMe = p.userId === myId;
               return (
                 <View key={p.userId} style={styles.participantRow}>
                   <View
@@ -459,10 +468,12 @@ function LiveMap({
                       { backgroundColor: colorForId(p.userId) },
                     ]}
                   />
-                  <Text style={styles.participantName} numberOfLines={1}>
-                    {p.username || p.userId}
-                  </Text>
-                  <Text style={styles.participantTime}>{tc}</Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.participantName} numberOfLines={1}>
+                      {isMe ? "Tú" : p.username || p.userId.slice(0, 8)}
+                    </Text>
+                    <Text style={styles.participantTime}>Activo · {tc}</Text>
+                  </View>
                 </View>
               );
             })}
@@ -497,8 +508,7 @@ function IncidentReport({
   const submit = async () => {
     setSaving(true);
     try {
-      // Mock submission
-      await new Promise((r) => setTimeout(r, 1500));
+      await eventService.createReport(eventId, { reportType: type, description });
       addToast({
         type: "reporte",
         title: "Reporte enviado",
@@ -734,12 +744,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#90909A",
   },
-  /* Map overlay */
-  mapOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    height: 120,
-    zIndex: 10,
-  },
   mapHeader: {
     position: "absolute",
     top: Platform.OS === "ios" ? 52 : 32,
@@ -750,21 +754,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 12,
     zIndex: 20,
-  },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 2,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusText: {
-    fontSize: 11,
-    color: "#90909A",
   },
   reportBtn: {
     width: 40,
@@ -828,13 +817,14 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   participantName: {
-    flex: 1,
     fontSize: 12,
+    fontWeight: "600",
     color: "#E0E0E6",
   },
   participantTime: {
     fontSize: 10,
     color: "#90909A",
+    marginTop: 1,
   },
   /* Custom marker */
   customMarker: {
@@ -850,6 +840,51 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "700",
+  },
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  liveBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  participantSubHeader: {
+    fontSize: 12,
+    color: "#90909A",
+    marginTop: 2,
+  },
+  privacyBanner: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 100 : 80,
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(127,231,196,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(127,231,196,0.2)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    zIndex: 15,
+  },
+  privacyText: {
+    flex: 1,
+    fontSize: 11,
+    color: "#7FE7C4",
+    lineHeight: 15,
+  },
+  emptyPanelText: {
+    fontSize: 12,
+    color: "#90909A",
+    lineHeight: 18,
+    marginBottom: 4,
   },
   /* Report */
   reportOverlay: {

@@ -72,4 +72,8 @@ export const eventService = {
   async join(eventId: string): Promise<void> {
     await apiClient.post(`${BASE}/${eventId}/join`);
   },
+
+  async createReport(eventId: string, body: { reportType: string; description: string }): Promise<void> {
+    await apiClient.post(`${BASE}/${eventId}/reports`, body);
+  },
 };
