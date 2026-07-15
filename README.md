@@ -11,6 +11,7 @@ U·LINK is a university matching and social platform designed to connect student
 - **Real-time Chat**: WebSocket-powered group chats and 1-on-1 direct messaging.
 - **Events Map**: Explore interactive maps of campus events.
 - **Friends Tab**: Manage connections, view online status, and launch direct messages, audio calls, and video calls.
+- **Wellness (Bienestar)**: Integrated breathing exercises (4-7-8, Box, Calm) with real-time animations, and a multi-track ambient sound mixer (rain, forest, lofi, etc.) for focus and relaxation.
 - **Dynamic Themes**: Beautiful glassmorphism UI with custom gradients and accessible modes.
 
 ## ⚡ Recent Optimizations (v1.1)
@@ -20,6 +21,7 @@ To ensure a smooth, premium experience, the app features significant performance
 - **Skeleton Loaders**: Premium loading states rather than blocking spinners.
 - **N+1 Query Reduction**: Intelligent batching and background prefetching (e.g., in the Explore tab) to reduce parallel backend stress by 60%.
 - **Token Prefetching**: Bypassed disk I/O bottlenecks in request interceptors for instant API auth.
+- **Render Optimizations**: Strategic use of `React.memo` and `useCallback` to maintain 60fps across complex UI trees, like the Settings view and interactive Wellness components.
 
 ## 🛠️ Get Started
 

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  Animated,
   ActivityIndicator,
   Alert,
 } from "react-native";
@@ -20,6 +19,7 @@ import type {
   ParcheCategory,
   UUID,
 } from "@/services/types";
+import { useFocusEffect } from "expo-router";
 
 // ─── Category helpers ────────────────────────────────────────────────────────
 
@@ -42,103 +42,6 @@ const CATEGORY_COLORS: Record<ParcheCategory, string> = {
   STUDY: "rgba(240, 178, 50, 1)",
   VARIETY: "rgba(143, 132, 224, 1)",
 };
-
-// ─── Data (friends — not API-backed yet) ─────────────────────────────────────
-
-type OnlineStatus = "online" | "offline" | "away";
-
-interface Friend {
-  id: string;
-  initials: string;
-  name: string;
-  status: OnlineStatus;
-  statusLabel: string;
-  avatarColor: string;
-}
-
-const FRIENDS: Friend[] = [
-  { id: "1", initials: "SA", name: "Santiago A.", status: "online", statusLabel: "En línea", avatarColor: "rgba(99, 102, 241, 0.75)" },
-  { id: "2", initials: "VT", name: "Valeria T.", status: "online", statusLabel: "En línea", avatarColor: "rgba(99, 102, 241, 0.75)" },
-  { id: "3", initials: "CM", name: "Carlos M.", status: "away", statusLabel: "Hace 18 min", avatarColor: "rgba(99, 102, 241, 0.75)" },
-  { id: "4", initials: "FA", name: "Felipe A.", status: "online", statusLabel: "En línea", avatarColor: "rgba(99, 102, 241, 0.75)" },
-  { id: "5", initials: "SV", name: "Sofía V.", status: "offline", statusLabel: "Hace 2 h", avatarColor: "rgba(99, 102, 241, 0.75)" },
-  { id: "6", initials: "MH", name: "Miguel H.", status: "online", statusLabel: "En línea", avatarColor: "rgba(99, 102, 241, 0.75)" },
-  { id: "7", initials: "LP", name: "Laura P.", status: "offline", statusLabel: "Ayer", avatarColor: "rgba(99, 102, 241, 0.75)" },
-];
-
-const RECENT_FRIENDS = FRIENDS.slice(0, 5);
-
-// ─── Status indicator ────────────────────────────────────────────────────────
-
-function StatusDot({ status }: { status: OnlineStatus }) {
-  const color =
-    status === "online"
-      ? "rgba(35, 165, 89, 1)"
-      : status === "away"
-      ? "rgba(240, 178, 50, 1)"
-      : "rgba(90, 90, 104, 1)";
-  return <View style={[styles.statusDot, { backgroundColor: color }]} />;
-}
-
-// ─── Friend row ──────────────────────────────────────────────────────────────
-
-function FriendRow({ friend }: { friend: Friend }) {
-  const router = useRouter();
-  const labelColor =
-    friend.status === "online"
-      ? "rgba(35, 165, 89, 1)"
-      : "rgba(90, 90, 104, 1)";
-  return (
-    <View style={styles.friendRow}>
-      <Pressable onPress={() => router.push(`/user/${friend.id}`)} style={styles.friendAvatarWrap}>
-        <View style={styles.friendAvatar}>
-          <Text style={styles.friendInitials}>{friend.initials}</Text>
-        </View>
-        <StatusDot status={friend.status} />
-      </Pressable>
-
-      <Pressable style={styles.friendInfo} onPress={() => router.push(`/user/${friend.id}`)}>
-        <Text style={styles.friendName}>{friend.name}</Text>
-        <Text style={[styles.friendStatus, { color: labelColor }]}>
-          {friend.statusLabel}
-        </Text>
-      </Pressable>
-
-      <View style={styles.friendActions}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.actionIconBtn,
-            styles.actionIconBtnPrimary,
-            pressed && { opacity: 0.7, transform: [{ scale: 0.92 }] },
-          ]}
-          onPress={() => router.push(`/chat/${friend.id}`)}
-        >
-          <Ionicons name="chatbubble-ellipses" size={16} color="rgba(129, 140, 248, 1)" />
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [
-            styles.actionIconBtn,
-            styles.actionIconBtnSecondary,
-            pressed && { opacity: 0.7, transform: [{ scale: 0.92 }] },
-          ]}
-          onPress={() => router.push("/call")}
-        >
-          <Ionicons name="call" size={16} color="rgba(143, 132, 224, 0.8)" />
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [
-            styles.actionIconBtn,
-            styles.actionIconBtnSecondary,
-            pressed && { opacity: 0.7, transform: [{ scale: 0.92 }] },
-          ]}
-          onPress={() => router.push("/video-call")}
-        >
-          <Ionicons name="videocam" size={16} color="rgba(143, 132, 224, 0.8)" />
-        </Pressable>
-      </View>
-    </View>
-  );
-}
 
 // ─── Parche card ─────────────────────────────────────────────────────────────
 
@@ -233,9 +136,7 @@ function ParcheCard({
 export default function ParchesScreen() {
   const router = useRouter();
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<"amigos" | "parches">("amigos");
   const [searchQuery, setSearchQuery] = useState("");
-  const tabAnim = useRef(new Animated.Value(0)).current;
 
   // Parches data
   const [myParches, setMyParches] = useState<ParcheSummaryResponse[]>([]);
@@ -257,22 +158,11 @@ export default function ParchesScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    if (activeTab === "parches") {
+  useFocusEffect(
+    useCallback(() => {
       fetchParches();
-    }
-  }, [activeTab, fetchParches]);
-
-  const handleTabSwitch = (tab: "amigos" | "parches") => {
-    if (tab === activeTab) return;
-    setActiveTab(tab);
-    Animated.spring(tabAnim, {
-      toValue: tab === "amigos" ? 0 : 1,
-      useNativeDriver: false,
-      damping: 20,
-      stiffness: 200,
-    }).start();
-  };
+    }, [fetchParches])
+  );
 
   const handleJoin = async (parcheId: UUID) => {
     setJoiningId(parcheId);
@@ -287,10 +177,6 @@ export default function ParchesScreen() {
     }
   };
 
-  const filteredFriends = FRIENDS.filter((f) =>
-    f.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const filteredMyParches = myParches.filter(
     (p) =>
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -302,11 +188,6 @@ export default function ParchesScreen() {
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       CATEGORY_LABELS[p.category].toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const tabIndicatorLeft = tabAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0%", "50%"],
-  });
 
   return (
     <SafeAreaView style={styles.root}>
@@ -325,9 +206,7 @@ export default function ParchesScreen() {
 
       {/* ── Page title ── */}
       <View style={styles.titleSection}>
-        <Text style={styles.mainTitle}>
-          {activeTab === "amigos" ? "Mis Amigos" : "Mis Parches"}
-        </Text>
+        <Text style={styles.mainTitle}>Mis Parches</Text>
       </View>
 
       {/* ── Search bar ── */}
@@ -340,9 +219,7 @@ export default function ParchesScreen() {
         />
         <TextInput
           style={styles.searchInput}
-          placeholder={
-            activeTab === "amigos" ? "Buscar amigo..." : "Buscar parche..."
-          }
+          placeholder="Buscar parche..."
           placeholderTextColor="rgba(255,255,255,0.35)"
           value={searchQuery}
           onChangeText={setSearchQuery}
@@ -359,183 +236,105 @@ export default function ParchesScreen() {
         )}
       </View>
 
-      {/* ── Tab toggle ── */}
-      <View style={styles.tabToggleWrap}>
-        <Animated.View style={[styles.tabIndicator, { left: tabIndicatorLeft }]} />
-        <Pressable
-          style={styles.tabToggleBtn}
-          onPress={() => handleTabSwitch("amigos")}
-        >
-          <Text
-            style={[
-              styles.tabToggleText,
-              activeTab === "amigos" && styles.tabToggleTextActive,
-            ]}
-          >
-            Amigos
-          </Text>
-        </Pressable>
-        <Pressable
-          style={styles.tabToggleBtn}
-          onPress={() => handleTabSwitch("parches")}
-        >
-          <Text
-            style={[
-              styles.tabToggleText,
-              activeTab === "parches" && styles.tabToggleTextActive,
-            ]}
-          >
-            Parches
-          </Text>
-        </Pressable>
-      </View>
-
       {/* ── Content ── */}
-      {activeTab === "amigos" ? (
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <Text style={styles.sectionLabel}>RECIENTES</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.recentRow}
-          >
-            {RECENT_FRIENDS.map((f) => (
-              <Pressable key={f.id} style={styles.recentItem}>
-                <View style={styles.recentAvatarWrap}>
-                  <View style={styles.recentAvatar}>
-                    <Text style={styles.recentInitials}>{f.initials}</Text>
-                  </View>
-                  <StatusDot status={f.status} />
-                </View>
-                <Text style={styles.recentName} numberOfLines={1}>
-                  {f.name.split(" ")[0]}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          <Text style={styles.sectionLabel}>TODOS</Text>
-          <View style={styles.friendListCard}>
-            {filteredFriends.map((friend, index) => (
-              <View key={friend.id}>
-                {index > 0 && <View style={styles.divider} />}
-                <FriendRow friend={friend} />
-              </View>
-            ))}
-            {filteredFriends.length === 0 && (
-              <View style={styles.emptyState}>
-                <Ionicons name="person-outline" size={32} color="rgba(143,132,224,0.3)" />
-                <Text style={styles.emptyText}>Sin resultados</Text>
-              </View>
-            )}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {loadingParches ? (
+          <View style={styles.emptyState}>
+            <ActivityIndicator size="large" color="rgba(99, 102, 241, 1)" />
           </View>
-
-          <View style={{ height: 110 }} />
-        </ScrollView>
-      ) : (
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {loadingParches ? (
-            <View style={styles.emptyState}>
-              <ActivityIndicator size="large" color="rgba(99, 102, 241, 1)" />
-            </View>
-          ) : (
-            <>
-              {/* My Parches */}
-              {filteredMyParches.length > 0 && (
-                <>
-                  <Text style={styles.sectionLabel}>MIS PARCHES</Text>
-                  <View style={styles.serverList}>
-                    {filteredMyParches.map((p) => (
-                      <ParcheCard key={p.parcheId} parche={p} />
-                    ))}
-                  </View>
-                </>
-              )}
-
-              {/* Browse Public Parches */}
-              <Text style={styles.sectionLabel}>
-                {filteredMyParches.length > 0 ? "EXPLORAR" : "PARCHES PÚBLICOS"}
-              </Text>
-              <View style={styles.serverList}>
-                {filteredPublicParches.map((p) => (
-                  <ParcheCard
-                    key={p.parcheId}
-                    parche={p}
-                    onJoin={handleJoin}
-                    joining={joiningId === p.parcheId}
-                  />
-                ))}
-                {filteredPublicParches.length === 0 && filteredMyParches.length === 0 && (
-                  <View style={styles.emptyState}>
-                    <Ionicons name="grid-outline" size={32} color="rgba(143,132,224,0.3)" />
-                    <Text style={styles.emptyText}>No hay parches disponibles</Text>
-                    <Text style={[styles.emptyText, { fontSize: 12 }]}>
-                      Crea uno o únete con un código de invitación
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Join by invite code */}
-              <Pressable
-                style={({ pressed }) => [
-                  styles.joinCodeBtn,
-                  pressed && { opacity: 0.8 },
-                ]}
-                onPress={() => {
-                  Alert.prompt?.(
-                    "Unirse con código",
-                    "Ingresa el código de invitación",
-                    async (code: string) => {
-                      if (!code?.trim()) return;
-                      try {
-                        await parcheService.acceptInvite(code.trim());
-                        Alert.alert("Éxito", "Te uniste al parche.");
-                        await fetchParches();
-                      } catch {
-                        Alert.alert("Error", "Código inválido o expirado.");
-                      }
-                    }
-                  ) ?? Alert.alert("Código de invitación", "Pide el código a un administrador del parche.");
-                }}
-              >
-                <Ionicons name="key-outline" size={18} color="rgba(129, 140, 248, 1)" />
-                <Text style={styles.joinCodeText}>Unirse con código</Text>
-              </Pressable>
-
-              {/* Create parche CTA */}
-              <Pressable
-                style={({ pressed }) => [
-                  styles.createServerBtn,
-                  pressed && { opacity: 0.8 },
-                ]}
-                onPress={() => router.push("/create-parche" as any)}
-              >
-                <View style={styles.createServerIcon}>
-                  <Ionicons name="add" size={22} color="rgba(129, 140, 248, 1)" />
+        ) : (
+          <>
+            {/* My Parches */}
+            {filteredMyParches.length > 0 && (
+              <>
+                <Text style={styles.sectionLabel}>MIS PARCHES</Text>
+                <View style={styles.serverList}>
+                  {filteredMyParches.map((p) => (
+                    <ParcheCard key={p.parcheId} parche={p} />
+                  ))}
                 </View>
-                <View style={styles.createServerText}>
-                  <Text style={styles.createServerTitle}>Crear un parche</Text>
-                  <Text style={styles.createServerSub}>
-                    Crea tu propio servidor para tu grupo
+              </>
+            )}
+
+            {/* Browse Public Parches */}
+            <Text style={styles.sectionLabel}>
+              {filteredMyParches.length > 0 ? "EXPLORAR" : "PARCHES PÚBLICOS"}
+            </Text>
+            <View style={styles.serverList}>
+              {filteredPublicParches.map((p) => (
+                <ParcheCard
+                  key={p.parcheId}
+                  parche={p}
+                  onJoin={handleJoin}
+                  joining={joiningId === p.parcheId}
+                />
+              ))}
+              {filteredPublicParches.length === 0 && filteredMyParches.length === 0 && (
+                <View style={styles.emptyState}>
+                  <Ionicons name="grid-outline" size={32} color="rgba(143,132,224,0.3)" />
+                  <Text style={styles.emptyText}>No hay parches disponibles</Text>
+                  <Text style={[styles.emptyText, { fontSize: 12 }]}>
+                    Crea uno o únete con un código de invitación
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color="rgba(143, 132, 224, 0.40)" />
-              </Pressable>
-            </>
-          )}
+              )}
+            </View>
 
-          <View style={{ height: 110 }} />
-        </ScrollView>
-      )}
+            {/* Join by invite code */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.joinCodeBtn,
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={() => {
+                Alert.prompt?.(
+                  "Unirse con código",
+                  "Ingresa el código de invitación",
+                  async (code: string) => {
+                    if (!code?.trim()) return;
+                    try {
+                      await parcheService.acceptInvite(code.trim());
+                      Alert.alert("Éxito", "Te uniste al parche.");
+                      await fetchParches();
+                    } catch {
+                      Alert.alert("Error", "Código inválido o expirado.");
+                    }
+                  }
+                ) ?? Alert.alert("Código de invitación", "Pide el código a un administrador del parche.");
+              }}
+            >
+              <Ionicons name="key-outline" size={18} color="rgba(129, 140, 248, 1)" />
+              <Text style={styles.joinCodeText}>Unirse con código</Text>
+            </Pressable>
+
+            {/* Create parche CTA */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.createServerBtn,
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={() => router.push("/create-parche" as any)}
+            >
+              <View style={styles.createServerIcon}>
+                <Ionicons name="add" size={22} color="rgba(129, 140, 248, 1)" />
+              </View>
+              <View style={styles.createServerText}>
+                <Text style={styles.createServerTitle}>Crear un parche</Text>
+                <Text style={styles.createServerSub}>
+                  Crea tu propio servidor para tu grupo
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="rgba(143, 132, 224, 0.40)" />
+            </Pressable>
+          </>
+        )}
+
+        <View style={{ height: 110 }} />
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -630,50 +429,6 @@ const styles = StyleSheet.create({
     fontWeight: "400",
   },
 
-  // ── Tab toggle ──
-  tabToggleWrap: {
-    flexDirection: "row",
-    marginHorizontal: 20,
-    marginTop: 12,
-    marginBottom: 6,
-    height: 40,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.07)",
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    padding: 3,
-    position: "relative",
-    overflow: "hidden",
-  },
-  tabIndicator: {
-    position: "absolute",
-    top: 3,
-    width: "50%",
-    height: 34,
-    borderRadius: 11,
-    backgroundColor: "rgba(99, 102, 241, 0.22)",
-    shadowColor: "rgba(99, 102, 241, 0.35)",
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-  },
-  tabToggleBtn: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 11,
-    zIndex: 1,
-  },
-  tabToggleText: {
-    color: "rgba(255, 255, 255, 0.45)",
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 19.5,
-  },
-  tabToggleTextActive: {
-    color: "rgba(255, 255, 255, 1)",
-  },
-
   // ── Scroll ──
   scrollView: {
     flex: 1,
@@ -692,142 +447,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginBottom: 10,
     marginLeft: 4,
-  },
-
-  // ── Recent horizontal row ──
-  recentRow: {
-    flexDirection: "row",
-    gap: 16,
-    paddingBottom: 20,
-    paddingLeft: 4,
-  },
-  recentItem: {
-    alignItems: "center",
-    gap: 6,
-    width: 56,
-  },
-  recentAvatarWrap: {
-    position: "relative",
-  },
-  recentAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "rgba(99, 102, 241, 0.20)",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1.5,
-    borderColor: "rgba(99, 102, 241, 0.30)",
-    shadowColor: "rgba(99, 102, 241, 0.30)",
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 1,
-    elevation: 4,
-  },
-  recentInitials: {
-    color: "rgba(255, 255, 255, 1)",
-    fontSize: 17,
-    fontWeight: "800",
-  },
-  recentName: {
-    color: "rgba(255, 255, 255, 0.60)",
-    fontSize: 10,
-    fontWeight: "400",
-    textAlign: "center",
-  },
-
-  // ── Status dot ──
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    position: "absolute",
-    right: 1,
-    bottom: 1,
-    borderWidth: 2,
-    borderColor: "rgba(11, 13, 24, 1)",
-  },
-
-  // ── Friend list card ──
-  friendListCard: {
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.05)",
-    backgroundColor: "rgba(255, 255, 255, 0.02)",
-    overflow: "hidden",
-    marginBottom: 10,
-  },
-  divider: {
-    height: 1,
-    marginHorizontal: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.04)",
-  },
-
-  // ── Friend row ──
-  friendRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  friendAvatarWrap: {
-    position: "relative",
-  },
-  friendAvatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "rgba(99, 102, 241, 0.20)",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1.5,
-    borderColor: "rgba(99, 102, 241, 0.25)",
-    shadowColor: "rgba(99, 102, 241, 0.30)",
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 1,
-    elevation: 4,
-  },
-  friendInitials: {
-    color: "rgba(255, 255, 255, 1)",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  friendInfo: {
-    flex: 1,
-    flexDirection: "column",
-  },
-  friendName: {
-    color: "rgba(255, 255, 255, 1)",
-    fontSize: 14,
-    fontWeight: "600",
-    lineHeight: 21,
-  },
-  friendStatus: {
-    fontSize: 11,
-    fontWeight: "400",
-    lineHeight: 15,
-  },
-  friendActions: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  actionIconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-  },
-  actionIconBtnPrimary: {
-    borderColor: "rgba(99, 102, 241, 0.27)",
-    backgroundColor: "rgba(99, 102, 241, 0.13)",
-  },
-  actionIconBtnSecondary: {
-    borderColor: "rgba(143, 132, 224, 0.27)",
-    backgroundColor: "rgba(143, 132, 224, 0.13)",
   },
 
   // ── Server list ──

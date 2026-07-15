@@ -11,6 +11,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
+import { useWebRTC } from "@/hooks/useWebRTC";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -22,18 +23,29 @@ function formatTimer(seconds: number) {
 
 export default function CallScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ name?: string; initials?: string }>();
+  const params = useLocalSearchParams<{ userId?: string; name?: string; initials?: string }>();
+  const calleeId = params.userId as string;
   const calleeName = params.name || "Amigo";
   const calleeInitials = params.initials || "A";
-  const [micActive, setMicActive] = useState(false);
-  const [speakerActive, setSpeakerActive] = useState(true);
+  
+  const [micActive, setMicActive] = useState(true);
+  const [speakerActive, setSpeakerActive] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
-  const [isConnecting, setIsConnecting] = useState(true);
+
+  const {
+    isConnecting,
+    startCall,
+    endCall,
+    toggleMic,
+  } = useWebRTC(calleeId);
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsConnecting(false), 2000);
-    return () => clearTimeout(timer);
-  }, []);
+    // Start audio-only call
+    startCall(false);
+    return () => {
+      endCall();
+    };
+  }, [startCall, endCall]);
 
   useEffect(() => {
     if (isConnecting) return;
@@ -61,8 +73,15 @@ export default function CallScreen() {
     opacity: pulseOpacity.value,
   }));
 
-  const handlePress = (setter: React.Dispatch<React.SetStateAction<boolean>>, value: boolean) => {
-    setter(!value);
+  const handleMicToggle = () => {
+    const state = toggleMic();
+    setMicActive(state);
+  };
+
+  const handleSpeakerToggle = () => {
+    // Speaker toggle is tricky in raw WebRTC on React Native without react-native-incall-manager, 
+    // but we toggle the UI state for now.
+    setSpeakerActive(!speakerActive);
   };
 
   return (
@@ -79,12 +98,12 @@ export default function CallScreen() {
         <View style={styles.profileSection}>
           <View style={styles.avatarWrap}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>SV</Text>
+              <Text style={styles.avatarText}>{calleeInitials}</Text>
             </View>
             <Animated.View style={[styles.connectingRing, pulseStyle]} />
           </View>
           <View style={styles.infoSection}>
-            <Text style={styles.nameText}>Sofía V.</Text>
+            <Text style={styles.nameText}>{calleeName}</Text>
             <Text style={styles.statusText}>
               {isConnecting ? "Llamando..." : formatTimer(callSeconds)}
             </Text>
@@ -96,7 +115,7 @@ export default function CallScreen() {
           <View style={styles.secondaryControls}>
             <Pressable
               style={styles.controlButtonWrap}
-              onPress={() => handlePress(setMicActive, micActive)}
+              onPress={handleMicToggle}
             >
               <View style={[styles.controlButton, micActive && styles.controlButtonActive]}>
                 <Ionicons
@@ -110,7 +129,7 @@ export default function CallScreen() {
 
             <Pressable
               style={styles.controlButtonWrap}
-              onPress={() => handlePress(setSpeakerActive, speakerActive)}
+              onPress={handleSpeakerToggle}
             >
               <View style={[styles.controlButton, speakerActive && styles.controlButtonActive]}>
                 <Ionicons
@@ -123,7 +142,10 @@ export default function CallScreen() {
             </Pressable>
           </View>
 
-          <Pressable style={styles.endCallButton} onPress={() => router.back()}>
+          <Pressable style={styles.endCallButton} onPress={() => {
+            endCall();
+            router.back();
+          }}>
             <Ionicons name="call" size={28} color="white" />
           </Pressable>
         </View>

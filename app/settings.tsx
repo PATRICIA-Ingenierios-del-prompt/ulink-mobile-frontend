@@ -264,7 +264,7 @@ export default function SettingsScreen() {
 
 // ── Helper Components ──
 
-function SettingRow({ icon, title, desc, control }: any) {
+const SettingRow = React.memo(({ icon, title, desc, control }: any) => {
   return (
     <View style={styles.row}>
       <View style={styles.iconBox}>
@@ -279,9 +279,9 @@ function SettingRow({ icon, title, desc, control }: any) {
       </View>
     </View>
   );
-}
+});
 
-function SettingLink({ icon, title }: any) {
+const SettingLink = React.memo(({ icon, title }: any) => {
   return (
     <Pressable style={styles.row}>
       <View style={styles.iconBox}>
@@ -293,9 +293,9 @@ function SettingLink({ icon, title }: any) {
       <Ionicons name="chevron-forward" size={16} color="rgba(255, 255, 255, 0.3)" />
     </Pressable>
   );
-}
+});
 
-function CustomSwitch({ value, onValueChange }: any) {
+const CustomSwitch = React.memo(({ value, onValueChange }: any) => {
   return (
     <Switch
       value={value}
@@ -305,9 +305,9 @@ function CustomSwitch({ value, onValueChange }: any) {
       ios_backgroundColor="rgba(255, 255, 255, 0.1)"
     />
   );
-}
+});
 
-function RadioOption({ selected, onPress, title, desc, activeIcon }: any) {
+const RadioOption = React.memo(({ selected, onPress, title, desc, activeIcon }: any) => {
   return (
     <Pressable 
       style={[styles.radioOption, selected && styles.radioOptionActive]} 
@@ -325,7 +325,7 @@ function RadioOption({ selected, onPress, title, desc, activeIcon }: any) {
       )}
     </Pressable>
   );
-}
+});
 
 // ── Styles ──
 

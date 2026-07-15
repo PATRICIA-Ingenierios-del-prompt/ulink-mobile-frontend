@@ -18,6 +18,8 @@ import Animated, {
   withTiming,
   interpolate,
 } from "react-native-reanimated";
+import { CameraView } from "expo-camera";
+import { useWebRTC } from "@/hooks/useWebRTC";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -138,9 +140,29 @@ export default function VideoCallScreen() {
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isFrontCamera, setIsFrontCamera] = useState(true);
   const [callSeconds, setCallSeconds] = useState(0);
-  const [isConnecting, setIsConnecting] = useState(true);
   const [showControls, setShowControls] = useState(true);
   const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { userId, name, initials } = useLocalSearchParams();
+  const calleeId = userId as string;
+
+  const {
+    localStream,
+    remoteStream,
+    isConnecting,
+    startCall,
+    endCall,
+    toggleMic,
+    toggleCamera,
+  } = useWebRTC(calleeId);
+
+  useEffect(() => {
+    // Automatically start the call when screen mounts
+    startCall(true);
+    return () => {
+      endCall();
+    };
+  }, [startCall, endCall]);
 
   useEffect(() => {
     if (isConnecting) return;
@@ -149,8 +171,7 @@ export default function VideoCallScreen() {
   }, [isConnecting]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsConnecting(false), 2200);
-    return () => clearTimeout(timer);
+    // isConnecting is handled by useWebRTC now
   }, []);
 
   const resetControlsTimer = () => {
@@ -216,11 +237,20 @@ export default function VideoCallScreen() {
       <View style={styles.remoteVideo}>
         <View style={styles.remoteGradientLayer1} />
         <View style={styles.remoteGradientLayer2} />
-        <View style={styles.remoteVideoPlaceholder}>
-          <View style={styles.remoteAvatar}>
-            <Text style={styles.remoteAvatarText}>SV</Text>
+        {remoteStream ? (
+          <View style={styles.remoteVideoPlaceholder}>
+            <View style={styles.remoteAvatar}>
+              <Text style={styles.remoteAvatarText}>{initials || "U"}</Text>
+            </View>
+            <Text style={{color: "white", marginTop: 10}}>Conectado</Text>
           </View>
-        </View>
+        ) : (
+          <View style={styles.remoteVideoPlaceholder}>
+            <View style={styles.remoteAvatar}>
+              <Text style={styles.remoteAvatarText}>{initials || "U"}</Text>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Header Overlay */}
@@ -231,7 +261,7 @@ export default function VideoCallScreen() {
               <Ionicons name="chevron-down" size={24} color="rgba(255, 255, 255, 0.7)" />
             </Pressable>
             <View style={styles.headerCenter}>
-              <Text style={styles.callerName}>Sofía V.</Text>
+              <Text style={styles.callerName}>{name || "Usuario"}</Text>
               <View style={styles.statusRow}>
                 {isConnecting ? (
                   <>
@@ -266,9 +296,16 @@ export default function VideoCallScreen() {
       <Animated.View style={[styles.localPreview, { opacity: interpolate(controlsY.value, [0, 120], [1, 0.3]) }]}>
         <View style={styles.localPreviewInner}>
           {isCameraOn ? (
-            <View style={styles.localVideoActive}>
-              <Text style={styles.localPreviewText}>TÚ</Text>
-            </View>
+            localStream ? (
+              <CameraView
+                style={StyleSheet.absoluteFillObject}
+                facing={isFrontCamera ? "front" : "back"}
+              />
+            ) : (
+              <View style={styles.localVideoActive}>
+                <Text style={styles.localPreviewText}>TÚ</Text>
+              </View>
+            )
           ) : (
             <View style={styles.localVideoOff}>
               <Ionicons name="videocam-off" size={18} color="rgba(255, 255, 255, 0.4)" />
@@ -288,7 +325,7 @@ export default function VideoCallScreen() {
               </View>
               <Animated.View style={[styles.connectingRing, pulseStyle]} />
             </View>
-            <Text style={styles.connectingName}>Sofía V.</Text>
+            <Text style={styles.connectingName}>{name || "Usuario"}</Text>
             <Text style={styles.connectingSub}>Llamada de video...</Text>
           </View>
         </View>
@@ -302,7 +339,10 @@ export default function VideoCallScreen() {
               <ControlButton
                 icon={isMuted ? "mic-off" : "mic"}
                 active={!isMuted}
-                onPress={() => setIsMuted((m) => !m)}
+                onPress={() => {
+                  const state = toggleMic();
+                  setIsMuted(!state);
+                }}
                 label={isMuted ? "Mic off" : "Mic"}
               />
               <ControlButton
@@ -315,7 +355,10 @@ export default function VideoCallScreen() {
                 icon="call"
                 variant="danger"
                 active={false}
-                onPress={() => router.back()}
+                onPress={() => {
+                  endCall();
+                  router.back();
+                }}
                 label="Finalizar"
                 size={68}
               />
@@ -328,7 +371,10 @@ export default function VideoCallScreen() {
               <ControlButton
                 icon={isCameraOn ? "videocam" : "videocam-off"}
                 active={isCameraOn}
-                onPress={() => setIsCameraOn((c) => !c)}
+                onPress={() => {
+                  const state = toggleCamera();
+                  setIsCameraOn(state);
+                }}
                 label="Video"
               />
             </View>

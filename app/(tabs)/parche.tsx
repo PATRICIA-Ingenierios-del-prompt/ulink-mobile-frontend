@@ -203,7 +203,7 @@ function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
   // Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const recordingTimer = useRef<NodeJS.Timeout | null>(null);
+  const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleSend = () => {
     if (text.trim().length === 0) return;

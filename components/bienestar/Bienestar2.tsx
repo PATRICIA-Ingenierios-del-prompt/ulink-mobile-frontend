@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet } from 'react-native';
-import { View, Text, Pressable, ScrollView, TextInput } from 'react-native';
+import { View, Text, Pressable, ScrollView, TextInput, Alert } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 
 import type { ViewStyle, StyleProp } from 'react-native';
 
@@ -10,7 +11,7 @@ export interface Bienestar2Props {
   onTabChange?: (index: 1 | 2 | 3 | 4) => void;
 }
 
-const ENTRIES = [
+const DEFAULT_ENTRIES = [
   { emoji: '😊', date: 'Lunes 7 Jul', text: 'Hoy tuve una buena sesión de estudio con el grupo...' },
   { emoji: '😔', date: 'Domingo 6 Jul', text: 'Me costó concentrarme, pero al final logré terminar el ejercicio...' },
   { emoji: '🌟', date: 'Sábado 5 Jul', text: '¡Terminé el proyecto de IA! Fue mucho trabajo pero valió la pena...' },
@@ -28,6 +29,47 @@ const MOODS = [
 export function Bienestar2(props: Bienestar2Props) {
   const [selectedMood, setSelectedMood] = useState<number | null>(null);
   const [journalText, setJournalText] = useState('');
+  const [entries, setEntries] = useState(DEFAULT_ENTRIES);
+
+  useEffect(() => {
+    loadEntries();
+  }, []);
+
+  const loadEntries = async () => {
+    try {
+      const saved = await SecureStore.getItemAsync('journal_entries');
+      if (saved) {
+        setEntries(JSON.parse(saved));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSave = async () => {
+    if (selectedMood === null || !journalText.trim()) {
+      Alert.alert('Faltan datos', 'Por favor selecciona un ánimo y escribe algo.');
+      return;
+    }
+
+    const newEntry = {
+      emoji: MOODS[selectedMood].emoji,
+      date: new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' }),
+      text: journalText.trim()
+    };
+
+    const updatedEntries = [newEntry, ...entries];
+    setEntries(updatedEntries);
+    setSelectedMood(null);
+    setJournalText('');
+
+    try {
+      await SecureStore.setItemAsync('journal_entries', JSON.stringify(updatedEntries));
+      Alert.alert('Guardado', 'Tu entrada del diario ha sido guardada.');
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   return (
     <View testID={props.testID ?? '113:253'} style={[styles.root, props.style]}>
@@ -66,12 +108,15 @@ export function Bienestar2(props: Bienestar2Props) {
             value={journalText}
             onChangeText={setJournalText}
           />
+          <Pressable style={styles.saveButton} onPress={handleSave}>
+            <Text style={styles.saveButtonText}>Guardar entrada</Text>
+          </Pressable>
         </View>
 
         {/* Previous entries */}
         <Text style={styles.sectionTitle}>Entradas anteriores</Text>
 
-        {ENTRIES.map((entry, i) => (
+        {entries.map((entry, i) => (
           <View key={i} style={styles.entryCard}>
             <View style={styles.entryEmoji}>
               <Text style={styles.entryEmojiText}>{entry.emoji}</Text>
@@ -144,6 +189,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(251, 191, 36, 0.15)',
     borderWidth: 1,
     borderColor: 'rgba(251, 191, 36, 0.4)',
+  },
+  saveButton: {
+    backgroundColor: 'rgba(251, 191, 36, 0.2)',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.4)',
+  },
+  saveButtonText: {
+    color: 'rgba(251, 191, 36, 1)',
+    fontFamily: 'Inter',
+    fontWeight: '600',
+    fontSize: 14,
   },
   moodEmoji: {
     fontSize: 22,

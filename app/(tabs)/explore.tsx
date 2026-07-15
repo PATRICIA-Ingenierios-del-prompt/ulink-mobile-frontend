@@ -232,7 +232,7 @@ export default function MatchingScreen() {
             <View style={styles.cardTopChips}>
               <View style={styles.matchChip}>
                 <Ionicons name="sparkles" size={14} color="rgba(251, 191, 36, 1)" />
-                <Text style={styles.badgeText}>{profile.compatibility}% {t("match_compatibility")}</Text>
+                <Text style={styles.matchChipText}>{profile.compatibility}% {t("match_compatibility")}</Text>
               </View>
               <View style={styles.uniChip}>
                 <Text style={styles.uniChipText}>{profile.university}</Text>

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { StyleSheet } from 'react-native';
 import { View, Text, Pressable, ScrollView } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 
 import type { ViewStyle, StyleProp } from 'react-native';
 
@@ -15,22 +16,110 @@ const TECHNIQUES = [
     key: '478',
     label: '4-7-8',
     steps: ['Inhala 4s', 'Sostén 7s', 'Exhala 8s'],
+    sequence: [
+      { phase: 'Inhala', duration: 4000, scale: 1.5 },
+      { phase: 'Sostén', duration: 7000, scale: 1.5 },
+      { phase: 'Exhala', duration: 8000, scale: 1 },
+    ],
   },
   {
     key: 'box',
     label: 'Box',
     steps: ['Inhala 4s', 'Sostén 4s', 'Exhala 4s', 'Sostén 4s'],
+    sequence: [
+      { phase: 'Inhala', duration: 4000, scale: 1.5 },
+      { phase: 'Sostén', duration: 4000, scale: 1.5 },
+      { phase: 'Exhala', duration: 4000, scale: 1 },
+      { phase: 'Sostén', duration: 4000, scale: 1 },
+    ],
   },
   {
     key: 'calma',
     label: 'Calma',
     steps: ['Inhala 4s', 'Exhala 6s'],
+    sequence: [
+      { phase: 'Inhala', duration: 4000, scale: 1.5 },
+      { phase: 'Exhala', duration: 6000, scale: 1 },
+    ],
   },
 ];
 
 export function Bienestar4(props: Bienestar4Props) {
   const [selectedTechnique, setSelectedTechnique] = useState('478');
+  const [isActive, setIsActive] = useState(false);
+  const [currentPhase, setCurrentPhase] = useState('Toca para empezar');
+  const [countdown, setCountdown] = useState<number | null>(null);
+  
   const technique = TECHNIQUES.find(t => t.key === selectedTechnique)!;
+
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: scale.value }],
+    };
+  });
+
+  const stopAnimation = useCallback(() => {
+    setIsActive(false);
+    setCurrentPhase('Toca para empezar');
+    setCountdown(null);
+    scale.value = withTiming(1, { duration: 500 });
+  }, [scale]);
+
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    let intervalId: NodeJS.Timeout;
+    let isMounted = true;
+
+    if (isActive) {
+      const runSequence = async () => {
+        let currentStepIndex = 0;
+        
+        const nextStep = () => {
+          if (!isMounted || !isActive) return;
+          const step = technique.sequence[currentStepIndex];
+          setCurrentPhase(step.phase);
+          setCountdown(step.duration / 1000);
+
+          scale.value = withTiming(step.scale, { 
+            duration: step.phase === 'Sostén' ? 0 : step.duration, 
+            easing: Easing.inOut(Easing.ease) 
+          });
+
+          let elapsed = 0;
+          intervalId = setInterval(() => {
+            elapsed += 1000;
+            if (elapsed < step.duration) {
+              setCountdown((prev) => (prev !== null ? prev - 1 : null));
+            }
+          }, 1000);
+
+          timeoutId = setTimeout(() => {
+            clearInterval(intervalId);
+            currentStepIndex = (currentStepIndex + 1) % technique.sequence.length;
+            nextStep();
+          }, step.duration);
+        };
+        
+        nextStep();
+      };
+      
+      runSequence();
+    } else {
+      stopAnimation();
+    }
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+      clearInterval(intervalId);
+    };
+  }, [isActive, technique, scale]);
+
+  const handleToggle = () => {
+    setIsActive(!isActive);
+  };
 
   return (
     <View testID={props.testID ?? '113:255'} style={[styles.root, props.style]}>
@@ -44,7 +133,9 @@ export function Bienestar4(props: Bienestar4Props) {
             <Pressable
               key={t.key}
               style={selectedTechnique === t.key ? styles.techButtonActive : styles.techButton}
-              onPress={() => setSelectedTechnique(t.key)}
+              onPress={() => {
+                if (!isActive) setSelectedTechnique(t.key);
+              }}
             >
               <Text style={selectedTechnique === t.key ? styles.techLabelActive : styles.techLabel}>
                 {t.label}
@@ -54,13 +145,14 @@ export function Bienestar4(props: Bienestar4Props) {
         </View>
 
         <View style={styles.circleWrapper}>
-          <View style={styles.ring3} />
-          <View style={styles.ring2} />
-          <View style={styles.ring1} />
-          <View style={styles.circle}>
+          <Animated.View style={[styles.ring3, animatedStyle]} />
+          <Animated.View style={[styles.ring2, animatedStyle]} />
+          <Animated.View style={[styles.ring1, animatedStyle]} />
+          <Animated.View style={[styles.circle, animatedStyle]}>
             <Text style={styles.circleEmoji}>{'🌬️'}</Text>
-            <Text style={styles.circleLabel}>Toca para empezar</Text>
-          </View>
+            <Text style={styles.circleLabel}>{currentPhase}</Text>
+            {countdown !== null && isActive && <Text style={styles.circleCountdown}>{countdown}</Text>}
+          </Animated.View>
         </View>
 
         <View style={styles.stepsContainer}>
@@ -72,8 +164,8 @@ export function Bienestar4(props: Bienestar4Props) {
           ))}
         </View>
 
-        <Pressable style={styles.startButton}>
-          <Text style={styles.startButtonText}>Comenzar</Text>
+        <Pressable style={[styles.startButton, isActive && styles.stopButton]} onPress={handleToggle}>
+          <Text style={styles.startButtonText}>{isActive ? 'Detener' : 'Comenzar'}</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -180,6 +272,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 8,
   },
+  circleCountdown: {
+    color: 'rgba(255, 255, 255, 1)',
+    fontFamily: 'Inter',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
   stepsContainer: {
     flexDirection: 'row',
     alignSelf: 'stretch',
@@ -211,6 +309,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(99, 102, 241, 1)',
     alignItems: 'center',
     elevation: 8,
+  },
+  stopButton: {
+    backgroundColor: 'rgba(242, 63, 67, 1)',
   },
   startButtonText: {
     color: 'rgba(255, 255, 255, 1)',
