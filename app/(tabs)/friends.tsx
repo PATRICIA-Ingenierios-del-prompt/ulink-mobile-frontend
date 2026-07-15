@@ -225,7 +225,7 @@ export default function FriendsScreen() {
   }, []);
 
   const handleChat = useCallback((friend: Friend) => {
-    router.push(`/chat/${friend.userId}` as any);
+    router.push(`/chat/${friend.userId}?isDirect=true` as any);
   }, [router]);
 
   const handleCall = useCallback((friend: Friend) => {

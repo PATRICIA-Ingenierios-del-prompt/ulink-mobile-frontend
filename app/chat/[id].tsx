@@ -32,7 +32,7 @@ interface Message {
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
+  const { id, isDirect } = useLocalSearchParams();
   const { userId } = useAuth();
   const [text, setText] = useState("");
   const scrollRef = useRef<ScrollView>(null);
@@ -80,9 +80,12 @@ export default function ChatScreen() {
   }, [chatId, userId]);
 
   const loadMessages = async () => {
-    if (!chatId) return;
+    if (!chatId || !userId) return;
     try {
-      const data = await communicationService.getMessages(chatId, 0, 50);
+      const data = isDirect === "true" 
+        ? await communicationService.getMessagesBetween(userId, chatId, 0, 50)
+        : await communicationService.getMessages(chatId, 0, 50);
+        
       const mapped: Message[] = (data.content || []).map((m) => ({
         id: m.id,
         sender: m.senderName || "Usuario",
