@@ -1,20 +1,55 @@
-import React, { useState, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, PanResponder, Dimensions, KeyboardAvoidingView, Platform, Alert, Image } from "react-native";
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, PanResponder, Dimensions, KeyboardAvoidingView, Platform, Alert, Image, ActivityIndicator } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Path } from "react-native-svg";
 import { ParquesBoard } from "../../components/parques/ParquesBoard";
+import { parcheService } from "@/services/parcheService";
+import type { ParcheResponse, ParcheCategory, UUID } from "@/services/types";
 
 type SubTab = "anuncios" | "general" | "apuntes" | "juegos";
 type PanelView = "miembros" | "ajustes" | null;
 
+const CATEGORY_LABELS: Record<ParcheCategory, string> = {
+  SPORT: "Deportes", ENTERTAINMENT: "Entretenimiento", MUSIC: "Música",
+  ART: "Arte", TECHNOLOGY: "Tecnología", STUDY: "Académico", VARIETY: "Variado",
+};
+
+const CATEGORY_EMOJI: Record<ParcheCategory, string> = {
+  SPORT: "⚽", ENTERTAINMENT: "🎮", MUSIC: "🎵",
+  ART: "🎨", TECHNOLOGY: "💻", STUDY: "📚", VARIETY: "🎯",
+};
+
 export default function ParcheScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { parcheId } = useLocalSearchParams<{ parcheId?: string }>();
   const [activeTab, setActiveTab] = useState<SubTab>("anuncios");
   const [panel, setPanel] = useState<PanelView>(null);
   const [showMenu, setShowMenu] = useState(false);
+  const [parche, setParche] = useState<ParcheResponse | null>(null);
+  const [loadingParche, setLoadingParche] = useState(!!parcheId);
+
+  useEffect(() => {
+    if (!parcheId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await parcheService.get(parcheId as UUID);
+        if (!cancelled) setParche(data);
+      } catch {
+        // keep null — show fallback
+      } finally {
+        if (!cancelled) setLoadingParche(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [parcheId]);
+
+  const parcheTitle = parche?.name ?? "Parche";
+  const parcheMembers = parche?.memberCount != null ? `${parche.memberCount} miembros` : "";
+  const parcheEmoji = parche?.category ? CATEGORY_EMOJI[parche.category] : "📐";
 
   return (
     <SafeAreaView style={styles.root}>
@@ -25,11 +60,11 @@ export default function ParcheScreen() {
             <Ionicons name="chevron-back" size={24} color="rgba(255, 255, 255, 0.8)" />
           </Pressable>
           <View style={styles.parcheIconBox}>
-            <Text style={styles.parcheIconEmoji}>📐</Text>
+            <Text style={styles.parcheIconEmoji}>{parcheEmoji}</Text>
           </View>
           <View style={styles.parcheInfo}>
-            <Text style={styles.parcheTitle}>Cálculo III Survivors</Text>
-            <Text style={styles.parcheSubtitle}>24 miembros</Text>
+            <Text style={styles.parcheTitle} numberOfLines={1}>{parcheTitle}</Text>
+            {parcheMembers ? <Text style={styles.parcheSubtitle}>{parcheMembers}</Text> : null}
           </View>
           <View style={styles.headerActions}>
             <Pressable style={styles.actionButton}>
@@ -143,7 +178,7 @@ export default function ParcheScreen() {
                 <Ionicons name="close" size={20} color="rgba(255, 255, 255, 0.6)" />
               </Pressable>
             </View>
-            {panel === "miembros" ? <MembersView /> : <SettingsView />}
+            {panel === "miembros" ? <MembersView /> : <SettingsView parche={parche} parcheId={parcheId} />}
           </View>
         </View>
       )}
@@ -785,7 +820,8 @@ function SettingsItem({ icon, label, value, color = "rgba(236, 237, 248, 1)", ha
   );
 }
 
-function SettingsView() {
+function SettingsView({ parche, parcheId }: { parche?: ParcheResponse | null; parcheId?: string }) {
+  const router = useRouter();
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [mentionOnly, setMentionOnly] = useState(false);
 
@@ -794,21 +830,22 @@ function SettingsView() {
       {/* Server info */}
       <View style={styles.settingsServerCard}>
         <View style={styles.settingsServerIcon}>
-          <Text style={{ fontSize: 24 }}>📐</Text>
+          <Text style={{ fontSize: 24 }}>{parche?.category ? CATEGORY_EMOJI[parche.category] : "📐"}</Text>
         </View>
         <View style={styles.settingsServerInfo}>
-          <Text style={styles.settingsServerName}>Cálculo III Survivors</Text>
-          <Text style={styles.settingsServerDesc}>Parche de cálculo — ECI 2026</Text>
+          <Text style={styles.settingsServerName}>{parche?.name ?? "Parche"}</Text>
+          <Text style={styles.settingsServerDesc}>
+            {parche ? `${CATEGORY_LABELS[parche.category]} · ${parche.visibility === "PUBLIC" ? "Público" : "Privado"} · ${parche.memberCount}/${parche.maxCapacity}` : ""}
+          </Text>
         </View>
       </View>
 
       {/* Overview */}
       <Text style={styles.settingsSectionLabel}>GENERAL</Text>
       <View style={styles.settingsGroup}>
-        <SettingsItem icon="information-circle" label="Descripción del parche" value="Cálculo III — ECI" />
-        <SettingsItem icon="image" label="Icono del parche" value="📐" />
-        <SettingsItem icon="color-palette" label="Color del parche" value="Rojo" />
-        <SettingsItem icon="people" label="Roles" value="3" />
+        <SettingsItem icon="information-circle" label="Descripción del parche" value={parche?.description ?? ""} />
+        <SettingsItem icon="people" label="Miembros" value={parche ? `${parche.memberCount} / ${parche.maxCapacity}` : ""} />
+        <SettingsItem icon="globe" label="Visibilidad" value={parche?.visibility === "PUBLIC" ? "Público" : "Privado"} />
       </View>
 
       {/* Notifications */}
@@ -869,8 +906,36 @@ function SettingsView() {
       {/* Danger */}
       <Text style={styles.settingsSectionLabel}>ZONA DE PELIGRO</Text>
       <View style={styles.settingsGroup}>
-        <SettingsItem icon="exit" label="Salir del parche" color="rgba(242, 63, 67, 1)" hasArrow />
-        <SettingsItem icon="trash" label="Eliminar parche" color="rgba(242, 63, 67, 1)" hasArrow />
+        <Pressable
+          style={({ pressed }) => [styles.settingsItem, pressed && { backgroundColor: "rgba(242, 63, 67, 0.08)" }]}
+          onPress={() => {
+            if (!parcheId) return;
+            Alert.alert("Salir del parche", "¿Estás seguro de que quieres salir?", [
+              { text: "Cancelar", style: "cancel" },
+              {
+                text: "Salir",
+                style: "destructive",
+                onPress: async () => {
+                  try {
+                    await parcheService.remove(parcheId as UUID);
+                    Alert.alert("Listo", "Saliste del parche.");
+                    router.navigate("/(tabs)/parches");
+                  } catch {
+                    Alert.alert("Error", "No se pudo salir del parche.");
+                  }
+                },
+              },
+            ]);
+          }}
+        >
+          <View style={[styles.settingsItemIcon, { backgroundColor: "rgba(242, 63, 67, 0.12)" }]}>
+            <Ionicons name="exit" size={18} color="rgba(242, 63, 67, 1)" />
+          </View>
+          <View style={styles.settingsItemContent}>
+            <Text style={[styles.settingsItemLabel, { color: "rgba(242, 63, 67, 1)" }]}>Salir del parche</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="rgba(242, 63, 67, 0.4)" />
+        </Pressable>
       </View>
 
       <View style={{ height: 120 }} />
