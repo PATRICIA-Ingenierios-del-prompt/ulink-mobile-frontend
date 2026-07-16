@@ -1000,7 +1000,6 @@ function SettingsView({ parche, parcheId }: { parche?: ParcheResponse | null; pa
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "rgba(11, 13, 24, 1)",
   },
   // ── Header ──
   header: {
@@ -1178,7 +1177,6 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     borderTopWidth: 1,
     borderTopColor: "rgba(255, 255, 255, 0.05)",
-    backgroundColor: "rgba(11, 13, 24, 1)",
   },
   chatInputWrap: {
     flexDirection: "row",
@@ -1366,7 +1364,6 @@ const styles = StyleSheet.create({
   gameCardLienzo: {
     height: 160,
     borderRadius: 22,
-    backgroundColor: "rgba(11, 13, 24, 1)", // fallback
   },
   gameCardInnerBorderLienzo: {
     flex: 1,
@@ -1407,7 +1404,6 @@ const styles = StyleSheet.create({
   gameCardParques: {
     height: 160,
     borderRadius: 22,
-    backgroundColor: "rgba(11, 13, 24, 1)",
   },
   gameCardInnerBorderParques: {
     flex: 1,
@@ -1928,7 +1924,6 @@ const styles = StyleSheet.create({
   // ── Panel Overlay ──
   panelOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(11, 13, 24, 1)",
     zIndex: 50,
   },
   panelContainer: {

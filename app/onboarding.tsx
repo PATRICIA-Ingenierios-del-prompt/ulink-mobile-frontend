@@ -16,7 +16,6 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { AuthContext } from "@/context/AuthContext";
 import { userService } from "@/services/userService";
-import { AnimatedBackground } from "@/components/AnimatedBackground";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -132,7 +131,6 @@ export default function OnboardingScreen() {
   if (step === 1) {
     return (
       <SafeAreaView style={styles.root}>
-        <AnimatedBackground />
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -192,7 +190,6 @@ export default function OnboardingScreen() {
   if (step === 2) {
     return (
       <SafeAreaView style={styles.root}>
-        <AnimatedBackground />
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -292,7 +289,6 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.root}>
-      <AnimatedBackground />
       <View style={styles.stepHeader}>
         <Text style={styles.stepEmoji}>✨</Text>
         <Text style={styles.stepTitle}>Elige tus intereses</Text>
@@ -399,7 +395,6 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "rgba(11, 13, 24, 1)",
   },
 
   // ── Step header ──

@@ -344,7 +344,6 @@ export default function ParchesScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "rgba(11, 13, 24, 1)",
   },
 
   // ── Top bar ──

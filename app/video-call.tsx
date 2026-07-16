@@ -390,7 +390,6 @@ export default function VideoCallScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#000",
   },
 
   remoteVideo: {

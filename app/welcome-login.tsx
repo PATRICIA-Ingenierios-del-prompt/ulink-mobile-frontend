@@ -14,7 +14,6 @@ import {
 } from "react-native";
 import { useAuth } from "../hooks/useAuth";
 import { authService, getMicrosoftAuthUrl, MS_REDIRECT_URI } from "../services/authService";
-import { AnimatedBackground } from "@/components/AnimatedBackground";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -122,7 +121,6 @@ export default function WelcomeLoginScreen() {
 
   return (
     <SafeAreaView style={styles.root}>
-      <AnimatedBackground />
       <View style={styles.container}>
         <WelcomeHero />
         <View style={styles.content}>

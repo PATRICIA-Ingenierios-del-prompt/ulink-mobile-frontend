@@ -634,7 +634,6 @@ const darkMapStyle = [
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0F0C23",
   },
   header: {
     flexDirection: "row",

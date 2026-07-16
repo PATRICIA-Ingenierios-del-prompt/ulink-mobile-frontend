@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo } from "react";
 import { StyleSheet, View, Dimensions } from "react-native";
+import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -37,14 +39,14 @@ interface WaveConfig {
 
 function generateBubbles(count: number): BubbleConfig[] {
   return Array.from({ length: count }, (_, i) => ({
-    size: 40 + Math.random() * 100,
+    size: 30 + Math.random() * 60,
     x: Math.random() * SCREEN_W,
     y: Math.random() * SCREEN_H,
     color: COLORS_DARK[i % COLORS_DARK.length],
     durationX: 8000 + Math.random() * 12000,
     durationY: 6000 + Math.random() * 10000,
     delay: Math.random() * 3000,
-    opacity: 0.06 + Math.random() * 0.12,
+    opacity: 0.12 + Math.random() * 0.15,
   }));
 }
 
@@ -53,10 +55,10 @@ function generateWaves(count: number): WaveConfig[] {
     y: SCREEN_H * (0.2 + i * 0.2),
     color: COLORS_DARK[i % COLORS_DARK.length],
     width: 1.5 + Math.random() * 1.5,
-    opacity: 0.05 + Math.random() * 0.08,
+    opacity: 0.06 + Math.random() * 0.1,
     duration: 12000 + Math.random() * 8000,
     delay: i * 800,
-    amplitude: 30 + Math.random() * 40,
+    amplitude: 20 + Math.random() * 20,
   }));
 }
 
@@ -100,8 +102,8 @@ function AnimatedBubble({ config }: { config: BubbleConfig }) {
 
   const style = useAnimatedStyle(() => ({
     transform: [
-      { translateX: interpolate(translateX.value, [0, config.x * 0.3], [-20, 20]) },
-      { translateY: interpolate(translateY.value, [0, config.y * 0.3], [-15, 15]) },
+      { translateX: interpolate(translateX.value, [0, config.x * 0.3], [0, config.x * 0.15]) },
+      { translateY: interpolate(translateY.value, [0, config.y * 0.3], [0, config.y * 0.15]) },
       { scale: scale.value },
     ],
   }));
@@ -127,7 +129,7 @@ function AnimatedBubble({ config }: { config: BubbleConfig }) {
 
 function AnimatedWave({ config }: { config: WaveConfig }) {
   const translateX = useSharedValue(0);
-  const opacity = useSharedValue(config.opacity);
+  const translateY = useSharedValue(0);
 
   useEffect(() => {
     translateX.value = withDelay(
@@ -141,10 +143,24 @@ function AnimatedWave({ config }: { config: WaveConfig }) {
         true
       )
     );
+    translateY.value = withDelay(
+      config.delay,
+      withRepeat(
+        withTiming(20, {
+          duration: config.duration * 0.6,
+          easing: Easing.inOut(Easing.sin),
+        }),
+        -1,
+        true
+      )
+    );
   }, []);
 
   const style = useAnimatedStyle(() => ({
-    transform: [{ translateX: interpolate(translateX.value, [0, config.amplitude], [-config.amplitude, config.amplitude]) }],
+    transform: [
+      { translateX: interpolate(translateX.value, [0, config.amplitude], [-config.amplitude * 2, config.amplitude * 2]) },
+      { translateY: interpolate(translateY.value, [0, 20], [-8, 8]) },
+    ],
   }));
 
   return (
@@ -172,12 +188,18 @@ export function AnimatedBackground() {
 
   return (
     <View style={styles.container} pointerEvents="none">
+      <LinearGradient
+        colors={["#0B0D18", "#1A1540", "#0B0D18"]}
+        locations={[0, 0.4, 1]}
+        style={StyleSheet.absoluteFill}
+      />
       {bubbles.map((b, i) => (
         <AnimatedBubble key={`b${i}`} config={b} />
       ))}
       {waves.map((w, i) => (
         <AnimatedWave key={`w${i}`} config={w} />
       ))}
+      <BlurView intensity={95} tint="dark" style={StyleSheet.absoluteFill} />
     </View>
   );
 }
@@ -185,7 +207,6 @@ export function AnimatedBackground() {
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: -1,
     overflow: "hidden",
   },
   bubble: {

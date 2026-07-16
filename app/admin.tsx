@@ -285,7 +285,7 @@ function StatTile({ icon, label, value, color }: { icon: keyof typeof Ionicons.g
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "rgba(11, 13, 24, 1)" },
+  root: { flex: 1 },
   header: {
     flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 12,
     borderBottomWidth: 1, borderBottomColor: "rgba(255, 255, 255, 0.06)",

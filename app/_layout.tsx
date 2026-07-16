@@ -14,6 +14,7 @@ import { AuthProvider, AuthContext } from '@/context/AuthContext';
 import { ReportsProvider } from '@/context/ReportsContext';
 import { AccessibilityProvider } from '@/context/AccessibilityContext';
 import { ColorBlindFilterDefs } from '@/components/ColorBlindFilters';
+import { AnimatedBackground } from '@/components/AnimatedBackground';
 import { ToastContainer } from '@/components/ToastSystem';
 
 export const unstable_settings = {
@@ -87,6 +88,15 @@ function NotificationObserver() {
   return null;
 }
 
+const TransparentDarkTheme = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    background: "transparent",
+    card: "transparent",
+  },
+};
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded] = useFonts({
@@ -109,8 +119,9 @@ export default function RootLayout() {
       <AuthProvider>
         <ReportsProvider>
           <AccessibilityProvider>
-            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <ThemeProvider value={colorScheme === 'dark' ? TransparentDarkTheme : DefaultTheme}>
               <ColorBlindFilterDefs />
+              <AnimatedBackground />
               <DeepLinkHandler />
               <NotificationObserver />
               <ToastContainer />
