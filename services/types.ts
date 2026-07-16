@@ -37,10 +37,25 @@ export interface PerfilResponse {
   nombre?: string;
   apellidos?: string;
   email?: string;
+  /**
+   * The backend returns the photo URL as `urlFotoPerfil`. We normalise it
+   * to `foto` in userService.getPerfil() so the rest of the app can read
+   * `perfil.foto` uniformly (mirrors web userService behaviour).
+   */
+  urlFotoPerfil?: string;
   foto?: string;
   genero?: string;
   fechaNacimiento?: string;
   onboardingCompleto?: boolean;
+}
+
+/**
+ * Response from the profile-photo upload endpoint.
+ * POST /api/v1/usuarios/{id}/foto/base64
+ * Extends PerfilResponse and adds the AI person-detection flag.
+ */
+export interface FotoUploadResponse extends PerfilResponse {
+  tienePersonaEnFoto?: boolean;
 }
 
 export interface ActualizarPerfilPayload {
