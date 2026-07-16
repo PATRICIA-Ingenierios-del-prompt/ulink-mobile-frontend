@@ -189,7 +189,7 @@ export function AnimatedBackground() {
   return (
     <View style={styles.container} pointerEvents="none">
       <LinearGradient
-        colors={["#0B0D18", "#1A1540", "#0B0D18"]}
+        colors={["#080810", "#120D24", "#080810"]}
         locations={[0, 0.4, 1]}
         style={StyleSheet.absoluteFill}
       />
@@ -199,7 +199,7 @@ export function AnimatedBackground() {
       {waves.map((w, i) => (
         <AnimatedWave key={`w${i}`} config={w} />
       ))}
-      <BlurView intensity={95} tint="dark" style={StyleSheet.absoluteFill} />
+      <BlurView intensity={120} tint="dark" style={StyleSheet.absoluteFill} />
     </View>
   );
 }
