@@ -13,22 +13,22 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useAuth } from "@/hooks/useAuth";
+import { useAccessibility, type VisionMode } from "@/context/AccessibilityContext";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { t, language, setLanguage } = useTranslation();
   const { logout } = useAuth();
+  const { visionMode, setVisionMode, dyslexiaMode, setDyslexiaMode } = useAccessibility();
   
   // Toggles state
   const [matchesNotif, setMatchesNotif] = useState(true);
   const [messagesNotif, setMessagesNotif] = useState(true);
   const [eventsNotif, setEventsNotif] = useState(true);
   const [incognitoMode, setIncognitoMode] = useState(false);
-  const [easyReading, setEasyReading] = useState(false);
   
   // Selections
   const [profileVis, setProfileVis] = useState<"public" | "private">("public");
-  const [colorVision, setColorVision] = useState("normal");
 
   return (
     <SafeAreaView style={styles.root}>
@@ -158,21 +158,21 @@ export default function SettingsScreen() {
               
               <View style={styles.radioGroup}>
                 <RadioOption 
-                  selected={colorVision === "normal"} 
-                  onPress={() => setColorVision("normal")}
+                  selected={visionMode === "normal"} 
+                  onPress={() => setVisionMode("normal")}
                   title={t("normal_vision")} 
                   desc={t("normal_vision_desc")}
                   activeIcon="checkmark-circle"
                 />
                 <RadioOption 
-                  selected={colorVision === "deuteranopia"} 
-                  onPress={() => setColorVision("deuteranopia")}
+                  selected={visionMode === "deuteranopia"} 
+                  onPress={() => setVisionMode("deuteranopia")}
                   title={t("deuteranopia")} 
                   desc={t("deuteranopia_desc")}
                 />
                 <RadioOption 
-                  selected={colorVision === "protanopia"} 
-                  onPress={() => setColorVision("protanopia")}
+                  selected={visionMode === "protanopia"} 
+                  onPress={() => setVisionMode("protanopia")}
                   title={t("protanopia")} 
                   desc={t("protanopia_desc")}
                 />
@@ -185,7 +185,7 @@ export default function SettingsScreen() {
               icon="text-outline" 
               title={t("easy_reading")} 
               desc={t("easy_reading_desc")}
-              control={<CustomSwitch value={easyReading} onValueChange={setEasyReading} />}
+              control={<CustomSwitch value={dyslexiaMode} onValueChange={setDyslexiaMode} />}
             />
           </View>
         </View>
@@ -245,11 +245,11 @@ export default function SettingsScreen() {
           </View>
           
           <View style={[styles.card, { marginTop: 12 }]}>
-            <SettingLink icon="document-text-outline" title={t("terms")} />
+            <SettingLink icon="document-text-outline" title={t("terms")} onPress={() => router.push("/legal")} />
             <View style={styles.divider} />
-            <SettingLink icon="shield-checkmark-outline" title={t("privacy_policy")} />
+            <SettingLink icon="shield-checkmark-outline" title={t("privacy_policy")} onPress={() => router.push("/legal")} />
             <View style={styles.divider} />
-            <SettingLink icon="help-circle-outline" title={t("help_center")} />
+            <SettingLink icon="help-circle-outline" title={t("help_center")} onPress={() => router.push("/legal")} />
           </View>
         </View>
         
@@ -264,7 +264,7 @@ export default function SettingsScreen() {
 
 // ── Helper Components ──
 
-function SettingRow({ icon, title, desc, control }: any) {
+const SettingRow = React.memo(({ icon, title, desc, control }: any) => {
   return (
     <View style={styles.row}>
       <View style={styles.iconBox}>
@@ -279,11 +279,11 @@ function SettingRow({ icon, title, desc, control }: any) {
       </View>
     </View>
   );
-}
+});
 
-function SettingLink({ icon, title }: any) {
+const SettingLink = React.memo(({ icon, title, onPress }: any) => {
   return (
-    <Pressable style={styles.row}>
+    <Pressable style={styles.row} onPress={onPress}>
       <View style={styles.iconBox}>
         <Ionicons name={icon} size={18} color="rgba(129, 140, 248, 1)" />
       </View>
@@ -293,9 +293,9 @@ function SettingLink({ icon, title }: any) {
       <Ionicons name="chevron-forward" size={16} color="rgba(255, 255, 255, 0.3)" />
     </Pressable>
   );
-}
+});
 
-function CustomSwitch({ value, onValueChange }: any) {
+const CustomSwitch = React.memo(({ value, onValueChange }: any) => {
   return (
     <Switch
       value={value}
@@ -305,9 +305,9 @@ function CustomSwitch({ value, onValueChange }: any) {
       ios_backgroundColor="rgba(255, 255, 255, 0.1)"
     />
   );
-}
+});
 
-function RadioOption({ selected, onPress, title, desc, activeIcon }: any) {
+const RadioOption = React.memo(({ selected, onPress, title, desc, activeIcon }: any) => {
   return (
     <Pressable 
       style={[styles.radioOption, selected && styles.radioOptionActive]} 
@@ -325,14 +325,13 @@ function RadioOption({ selected, onPress, title, desc, activeIcon }: any) {
       )}
     </Pressable>
   );
-}
+});
 
 // ── Styles ──
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "rgba(11, 13, 24, 1)",
   },
   scrollContent: {
     paddingBottom: 60,

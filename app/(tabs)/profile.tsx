@@ -451,7 +451,6 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "rgba(11, 13, 24, 1)",
   },
   scrollContent: {
     paddingBottom: 120,

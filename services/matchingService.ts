@@ -1,4 +1,5 @@
 import { apiClient } from "./apiClient";
+import { withCache } from "./cache";
 import type { UUID } from "./types";
 
 const BASE = "/matching";
@@ -24,11 +25,11 @@ export interface MatchResponse {
 
 export const matchingService = {
   async obtenerSugerencias(limite = 20): Promise<SugerenciaResponse[]> {
-    const { data } = await apiClient.get<SugerenciaResponse[]>(
-      `${BASE}/sugerencias`,
-      { params: { limite } }
+    return withCache(
+      `matching:sugerencias:${limite}`,
+      () => apiClient.get<SugerenciaResponse[]>(`${BASE}/sugerencias`, { params: { limite } }).then((r) => r.data),
+      120_000 // 2 min — suggestions don't change that fast
     );
-    return data;
   },
 
   async decidir(
@@ -43,8 +44,11 @@ export const matchingService = {
   },
 
   async listarMatches(): Promise<MatchResponse[]> {
-    const { data } = await apiClient.get<MatchResponse[]>(`${BASE}/matches`);
-    return data;
+    return withCache(
+      `matching:matches`,
+      () => apiClient.get<MatchResponse[]>(`${BASE}/matches`).then((r) => r.data),
+      60_000 // 1 min
+    );
   },
 
   async solicitudesRecibidas(): Promise<UUID[]> {

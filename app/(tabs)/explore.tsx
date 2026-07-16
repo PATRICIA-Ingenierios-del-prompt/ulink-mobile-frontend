@@ -16,6 +16,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { matchingService, type SugerenciaResponse } from "@/services/matchingService";
 import { userService } from "@/services/userService";
 import type { PerfilResponse } from "@/services/types";
+import { ACCENT_COLORS } from "@/lib/colors";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -36,14 +37,6 @@ interface MatchProfile {
   online: boolean;
 }
 
-const ACCENT_COLORS = [
-  "rgba(143, 132, 224, 1)",
-  "rgba(99, 140, 245, 1)",
-  "rgba(50, 180, 100, 1)",
-  "rgba(255, 107, 157, 1)",
-  "rgba(255, 179, 71, 1)",
-];
-
 export default function MatchingScreen() {
   const router = useRouter();
   const { t } = useTranslation();
@@ -58,9 +51,9 @@ export default function MatchingScreen() {
     loadProfiles();
   }, []);
 
-  const loadProfiles = async () => {
+  const loadProfiles = async (append = false) => {
     try {
-      const sugerencias = await matchingService.obtenerSugerencias(20);
+      const sugerencias = await matchingService.obtenerSugerencias(8); // Reduced from 20 to 8 for N+1 queries optimization
       const hydrated = await Promise.all(
         sugerencias.map(async (s, i) => {
           try {
@@ -86,7 +79,15 @@ export default function MatchingScreen() {
           }
         })
       );
-      setProfiles(hydrated.filter((p): p is MatchProfile => p !== null));
+      
+      const newProfiles = hydrated.filter((p): p is MatchProfile => p !== null);
+      setProfiles((prev) => {
+        if (append) {
+          const existingIds = new Set(prev.map((p) => p.id));
+          return [...prev, ...newProfiles.filter((p) => !existingIds.has(p.id))];
+        }
+        return newProfiles;
+      });
     } catch (err) {
       console.log("[MATCHING] Load error:", err);
     } finally {
@@ -127,6 +128,12 @@ export default function MatchingScreen() {
       matchingService.decidir(profile.id, decision).catch(() => {});
     }
     pan.setValue({ x: 0, y: 0 });
+    
+    // Prefetch next batch if close to running out
+    if (currentIndex + 2 >= profiles.length) {
+      loadProfiles(true);
+    }
+    
     setCurrentIndex((i) => i + 1);
   };
 
@@ -218,7 +225,7 @@ export default function MatchingScreen() {
             <View style={styles.cardTopChips}>
               <View style={styles.matchChip}>
                 <Ionicons name="sparkles" size={14} color="rgba(251, 191, 36, 1)" />
-                <Text style={styles.badgeText}>{profile.compatibility}% {t("match_compatibility")}</Text>
+                <Text style={styles.matchChipText}>{profile.compatibility}% {t("match_compatibility")}</Text>
               </View>
               <View style={styles.uniChip}>
                 <Text style={styles.uniChipText}>{profile.university}</Text>
@@ -321,7 +328,6 @@ const CARD_HEIGHT = SCREEN_HEIGHT * 0.60;
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "rgba(11, 13, 24, 1)",
   },
 
   // ── Empty state ──

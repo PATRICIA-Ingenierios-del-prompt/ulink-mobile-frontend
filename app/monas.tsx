@@ -1,8 +1,9 @@
-import React from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import * as SecureStore from "expo-secure-store";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -16,14 +17,14 @@ interface MonoCard {
   imagePlaceholder: string;
 }
 
-const MONOS: MonoCard[] = [
+const DEFAULT_MONOS: MonoCard[] = [
   {
     id: 1,
     number: "01",
     name: "MONO CODER",
     rarity: "RARO",
     accentColor: "rgba(129, 140, 248, 1)",
-    locked: false,
+    locked: true,
     imagePlaceholder: "💻",
   },
   {
@@ -32,7 +33,7 @@ const MONOS: MonoCard[] = [
     name: "MONO DJ",
     rarity: "ÉPICO",
     accentColor: "rgba(6, 182, 212, 1)",
-    locked: false,
+    locked: true,
     imagePlaceholder: "🎧",
   },
   {
@@ -41,7 +42,7 @@ const MONOS: MonoCard[] = [
     name: "MONO CIENTÍFICO",
     rarity: "LEGENDARIO",
     accentColor: "rgba(16, 185, 129, 1)",
-    locked: false,
+    locked: true,
     imagePlaceholder: "🔬",
   },
   {
@@ -52,6 +53,24 @@ const MONOS: MonoCard[] = [
     accentColor: "rgba(240, 178, 50, 1)",
     locked: true,
     imagePlaceholder: "📚",
+  },
+  {
+    id: 5,
+    number: "05",
+    name: "MONO DEPORTISTA",
+    rarity: "ÉPICO",
+    accentColor: "rgba(244, 63, 94, 1)",
+    locked: true,
+    imagePlaceholder: "⚽",
+  },
+  {
+    id: 6,
+    number: "06",
+    name: "MONO GAMER",
+    rarity: "LEGENDARIO",
+    accentColor: "rgba(168, 85, 247, 1)",
+    locked: true,
+    imagePlaceholder: "🎮",
   },
 ];
 
@@ -112,6 +131,50 @@ function MonoCardView({ mono }: { mono: MonoCard }) {
 
 export default function MonasScreen() {
   const router = useRouter();
+  const [monos, setMonos] = useState<MonoCard[]>(DEFAULT_MONOS);
+
+  useEffect(() => {
+    loadMonos();
+  }, []);
+
+  const loadMonos = async () => {
+    try {
+      const saved = await SecureStore.getItemAsync("unlocked_monos");
+      if (saved) {
+        const unlockedIds = JSON.parse(saved) as number[];
+        setMonos((prev) =>
+          prev.map((m) => (unlockedIds.includes(m.id) ? { ...m, locked: false } : m))
+        );
+      }
+    } catch (err) {
+      console.error("Failed to load monos", err);
+    }
+  };
+
+  const openPack = async () => {
+    const lockedMonos = monos.filter((m) => m.locked);
+    if (lockedMonos.length === 0) {
+      Alert.alert("¡Felicidades!", "Ya tienes todos los monos disponibles.");
+      return;
+    }
+
+    // Pick a random locked mono
+    const randomIndex = Math.floor(Math.random() * lockedMonos.length);
+    const newMono = lockedMonos[randomIndex];
+
+    const updatedMonos = monos.map((m) =>
+      m.id === newMono.id ? { ...m, locked: false } : m
+    );
+    setMonos(updatedMonos);
+
+    const unlockedIds = updatedMonos.filter((m) => !m.locked).map((m) => m.id);
+    await SecureStore.setItemAsync("unlocked_monos", JSON.stringify(unlockedIds));
+
+    Alert.alert(
+      "¡Sobre Abierto!",
+      `Has desbloqueado: ${newMono.name} (${newMono.rarity}) ${newMono.imagePlaceholder}`
+    );
+  };
 
   return (
     <SafeAreaView style={styles.root}>
@@ -132,26 +195,16 @@ export default function MonasScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* ── User Card ── */}
         <View style={styles.userCard}>
-          <View style={styles.userCardLeft}>
-            <View style={styles.userAvatar}>
-              <Text style={styles.userAvatarText}>TU</Text>
+          <View style={styles.progressRow}>
+            <View style={styles.progressStats}>
+              <Text style={styles.progressValue}>
+                {Math.round((monos.filter((m) => !m.locked).length / monos.length) * 100)}%
+              </Text>
+              <Text style={styles.progressLabel}>Completado</Text>
             </View>
-          </View>
-
-          <View style={styles.userCardCenter}>
-            <View style={styles.userNameRow}>
-              <Text style={styles.userName}>Juan García</Text>
-              <View style={styles.collectionBadge}>
-                <Ionicons name="star" size={8} color="rgba(240, 178, 50, 1)" />
-                <Text style={styles.collectionBadgeText}>12</Text>
-              </View>
+            <View style={styles.progressBarWrap}>
+              <View style={[styles.progressBarFill, { width: `${(monos.filter((m) => !m.locked).length / monos.length) * 100}%` }]} />
             </View>
-            <Text style={styles.userCareer}>Ingeniería de Sistemas · ECI</Text>
-          </View>
-
-          <View style={styles.userAchievements}>
-            <Text style={styles.userAchievementsCount}>3/4</Text>
-            <Text style={styles.userAchievementsLabel}>colectas</Text>
           </View>
         </View>
 
@@ -161,15 +214,20 @@ export default function MonasScreen() {
             <Text style={styles.sectionLabel}>Disponibles</Text>
             <Text style={styles.sectionTitle}>MONOS U·LINK</Text>
           </View>
+          <Pressable style={styles.openPackButton} onPress={openPack}>
+            <Text style={styles.openPackButtonText}>Abrir Sobre</Text>
+          </Pressable>
           <Pressable style={styles.sectionInfoBtn}>
             <Ionicons name="information-circle-outline" size={22} color="rgba(99, 102, 241, 0.6)" />
           </Pressable>
         </View>
 
         {/* ── Mono Cards Grid ── */}
-        <View style={styles.monoGrid}>
-          {MONOS.map((mono) => (
-            <MonoCardView key={mono.id} mono={mono} />
+        <View style={styles.grid}>
+          {monos.map((mono) => (
+            <View key={mono.id} style={styles.gridItem}>
+              <MonoCardView mono={mono} />
+            </View>
           ))}
         </View>
 
@@ -224,7 +282,6 @@ export default function MonasScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "rgba(11, 13, 24, 1)",
   },
   scrollContent: {
     paddingBottom: 40,
@@ -567,5 +624,64 @@ const styles = StyleSheet.create({
     height: 1,
     marginLeft: 62,
     backgroundColor: "rgba(255, 255, 255, 0.04)",
+  },
+
+  // ── Progress ──
+  progressRow: {
+    flex: 1,
+    gap: 8,
+  },
+  progressStats: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  progressValue: {
+    color: "rgba(236, 237, 248, 1)",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  progressLabel: {
+    color: "rgba(143, 132, 224, 0.6)",
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  progressBarWrap: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    overflow: "hidden" as const,
+  },
+  progressBarFill: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(99, 102, 241, 0.8)",
+  },
+
+  // ── Open Pack ──
+  openPackButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: "rgba(240, 178, 50, 0.2)",
+    borderWidth: 1,
+    borderColor: "rgba(240, 178, 50, 0.4)",
+  },
+  openPackButtonText: {
+    color: "rgba(240, 178, 50, 1)",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  // ── Grid ──
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 16,
+    marginTop: 16,
+    gap: 12,
+  },
+  gridItem: {
+    width: "47%",
   },
 });

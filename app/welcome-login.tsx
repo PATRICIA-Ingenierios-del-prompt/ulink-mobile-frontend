@@ -19,7 +19,7 @@ WebBrowser.maybeCompleteAuthSession();
 
 export default function WelcomeLoginScreen() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, skipAuth } = useAuth();
   const [loading, setLoading] = useState(false);
 
   // ── OTP flow state ──
@@ -221,9 +221,26 @@ export default function WelcomeLoginScreen() {
             </>
           )}
 
-          <Text style={styles.termsText}>
-            By continuing you agree to our Terms and Privacy Policy
-          </Text>
+          <Pressable
+            style={styles.skipButton}
+            onPress={() => {
+              skipAuth();
+              router.replace("/(tabs)/home");
+            }}
+          >
+            <Text style={styles.skipButtonText}>Skip (Auth service down)</Text>
+          </Pressable>
+
+          <View style={styles.termsRow}>
+            <Text style={styles.termsText}>By continuing you agree to our </Text>
+            <Pressable onPress={() => router.push("/legal")}>
+              <Text style={styles.termsLink}>Terms</Text>
+            </Pressable>
+            <Text style={styles.termsText}> and </Text>
+            <Pressable onPress={() => router.push("/legal")}>
+              <Text style={styles.termsLink}>Privacy Policy</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </SafeAreaView>
@@ -346,13 +363,39 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     textAlign: "center",
   },
-  termsText: {
+  termsRow: {
     marginTop: 32,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  termsText: {
     color: "rgba(90, 90, 104, 1)",
-    textAlign: "center",
     fontSize: 12,
     fontWeight: "400",
     lineHeight: 19.5,
+  },
+  termsLink: {
+    color: "#6C63FF",
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 19.5,
     textDecorationLine: "underline",
+  },
+  skipButton: {
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.15)",
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+  },
+  skipButtonText: {
+    color: "rgba(129, 140, 248, 0.7)",
+    fontSize: 13,
+    fontWeight: "500",
+    textAlign: "center",
   },
 });

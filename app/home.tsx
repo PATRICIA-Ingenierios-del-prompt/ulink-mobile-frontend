@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Image } from "expo-image";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
@@ -16,6 +16,50 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { parcheService } from "@/services/parcheService";
 import { useAuth } from "@/hooks/useAuth";
 import type { ParcheSummaryResponse } from "@/services/types";
+
+// ── Category color maps extracted to module level (no re-create per render) ──
+const CATEGORY_COLORS: Record<string, string> = {
+  MUSICA: "rgba(255, 107, 157, 1)",
+  MUSIC: "rgba(255, 107, 157, 1)",
+  DEPORTE: "rgba(127, 231, 196, 1)",
+  SPORT: "rgba(127, 231, 196, 1)",
+  ESTUDIO: "rgba(108, 99, 255, 1)",
+  STUDY: "rgba(108, 99, 255, 1)",
+  GASTRONOMIA: "rgba(255, 179, 71, 1)",
+  GAMING: "rgba(91, 200, 255, 1)",
+  ARTE: "rgba(167, 139, 250, 1)",
+  ART: "rgba(167, 139, 250, 1)",
+  VARIETY: "rgba(99, 102, 241, 1)",
+  TECHNOLOGY: "rgba(91, 200, 255, 1)",
+  ENTERTAINMENT: "rgba(242, 63, 67, 1)",
+};
+const FALLBACK_COLOR = "rgba(99, 102, 241, 1)";
+const getCategoryColor = (cat?: string) => CATEGORY_COLORS[cat || ""] ?? FALLBACK_COLOR;
+const getCategoryColorBorder = (cat?: string) => getCategoryColor(cat).replace("1)", "0.16)");
+const getCategoryColorBg = (cat?: string) => getCategoryColor(cat).replace("1)", "0.09)");
+
+// ── Skeleton row ──────────────────────────────────────────────────────────────
+function SkeletonRow() {
+  return (
+    <View style={skeletonStyles.row}>
+      <View style={skeletonStyles.dot} />
+      <View style={skeletonStyles.avatar} />
+      <View style={skeletonStyles.info}>
+        <View style={skeletonStyles.line} />
+        <View style={[skeletonStyles.line, { width: "55%", marginTop: 6, opacity: 0.5 }]} />
+      </View>
+      <View style={skeletonStyles.time} />
+    </View>
+  );
+}
+const skeletonStyles = StyleSheet.create({
+  row: { flexDirection: "row", alignItems: "center", paddingVertical: 14, gap: 14 },
+  dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "rgba(255,255,255,0.06)" },
+  avatar: { width: 48, height: 48, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.06)" },
+  info: { flex: 1 },
+  line: { height: 12, borderRadius: 6, backgroundColor: "rgba(255,255,255,0.07)", width: "70%" },
+  time: { width: 34, height: 12, borderRadius: 6, backgroundColor: "rgba(255,255,255,0.05)" },
+});
 
 interface FeedItem {
   id: string;
@@ -134,8 +178,6 @@ export default function HomeScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const { userName } = useAuth();
-  const [activeFilter, setActiveFilter] = useState<"friends" | "servers">("friends");
-  const [myParches, setMyParches] = useState<FeedItem[]>([]);
   const [publicParches, setPublicParches] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -143,27 +185,14 @@ export default function HomeScreen() {
     loadData();
   }, []);
 
-  const loadData = async () => {
+  const EMPTY_PAGE = { content: [], totalElements: 0, totalPages: 0, number: 0, size: 0, numberOfElements: 0, empty: true, first: true, last: true };
+
+  const loadData = useCallback(async () => {
     try {
-      const [mine, publicData] = await Promise.all([
-        parcheService.mine().catch(() => ({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 0, numberOfElements: 0, empty: true, first: true, last: true })),
-        parcheService.byVisibility("PUBLIC").catch(() => ({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 0, numberOfElements: 0, empty: true, first: true, last: true })),
-      ]);
+      // Fetch first 10 items per section for a fast first paint
+      const publicData = await parcheService.byVisibility("PUBLIC", { page: 0, size: 10 }).catch(() => EMPTY_PAGE);
 
-      const myItems: FeedItem[] = (mine.content || []).map((p: ParcheSummaryResponse) => ({
-        id: p.parcheId,
-        initials: p.name.substring(0, 2).toUpperCase(),
-        name: p.name,
-        action: p.description || "Tu parche",
-        time: "",
-        color: getCategoryColor(p.category),
-        colorBorder: getCategoryColorBorder(p.category),
-        colorBg: getCategoryColorBg(p.category),
-        online: true,
-        parcheId: p.parcheId,
-      }));
-
-      const publicItems: FeedItem[] = (publicData.content || []).map((p: ParcheSummaryResponse) => ({
+      setPublicParches((publicData.content || []).map((p: ParcheSummaryResponse) => ({
         id: p.parcheId,
         initials: p.name.substring(0, 2).toUpperCase(),
         name: p.name,
@@ -172,39 +201,15 @@ export default function HomeScreen() {
         color: getCategoryColor(p.category),
         colorBorder: getCategoryColorBorder(p.category),
         colorBg: getCategoryColorBg(p.category),
-        online: p.memberCount > 0,
+        online: (p.memberCount ?? 0) > 0,
         parcheId: p.parcheId,
-      }));
-
-      setMyParches(myItems);
-      setPublicParches(publicItems);
+      })));
     } catch (err) {
       console.log("[HOME] Load error:", err);
     } finally {
       setLoading(false);
     }
-  };
-
-  const getCategoryColor = (cat?: string) => {
-    const colors: Record<string, string> = {
-      MUSICA: "rgba(255, 107, 157, 1)",
-      DEPORTE: "rgba(127, 231, 196, 1)",
-      ESTUDIO: "rgba(108, 99, 255, 1)",
-      GASTRONOMIA: "rgba(255, 179, 71, 1)",
-      GAMING: "rgba(91, 200, 255, 1)",
-      ARTE: "rgba(167, 139, 250, 1)",
-      VARIETY: "rgba(99, 102, 241, 1)",
-    };
-    return colors[cat || ""] || "rgba(99, 102, 241, 1)";
-  };
-
-  const getCategoryColorBorder = (cat?: string) => {
-    return getCategoryColor(cat).replace("1)", "0.16)");
-  };
-
-  const getCategoryColorBg = (cat?: string) => {
-    return getCategoryColor(cat).replace("1)", "0.09)");
-  };
+  }, []);
 
   // Get greeting based on time of day
   const getGreeting = () => {
@@ -222,8 +227,6 @@ export default function HomeScreen() {
     year: "numeric",
   });
 
-  const displayData = activeFilter === "friends" ? myParches : publicParches;
-
   return (
     <SafeAreaView style={styles.root}>
       <ScrollView
@@ -233,7 +236,7 @@ export default function HomeScreen() {
       >
         {/* Header section */}
         <View style={styles.headerSection}>
-          {/* Top bar: leaf wellness icon left, U·link logo right */}
+          {/* Top bar: leaf wellness icon left, bell + logo right */}
           <View style={styles.topBar}>
             <Pressable onPress={() => router.push("/bienestar")}>
               <Ionicons
@@ -243,6 +246,36 @@ export default function HomeScreen() {
               />
             </Pressable>
             <View style={styles.topBarSpacer} />
+            <Pressable
+              style={styles.bellBtn}
+              onPress={() => router.push("/notifications")}
+            >
+              <Ionicons
+                name="notifications-outline"
+                size={22}
+                color="rgba(143, 132, 224, 0.75)"
+              />
+            </Pressable>
+            <Pressable
+              style={styles.bellBtn}
+              onPress={() => router.push("/location")}
+            >
+              <Ionicons
+                name="location-outline"
+                size={22}
+                color="rgba(143, 132, 224, 0.75)"
+              />
+            </Pressable>
+            <Pressable
+              style={styles.bellBtn}
+              onPress={() => router.push("/matches")}
+            >
+              <Ionicons
+                name="heart-outline"
+                size={22}
+                color="rgba(143, 132, 224, 0.75)"
+              />
+            </Pressable>
             <Image
               source={require("../assets/images/logoNuevoOscuro.png")}
               contentFit="contain"
@@ -278,41 +311,29 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Filter tabs */}
-        <View style={styles.tabsRow}>
-          <Pressable
-            style={activeFilter === "friends" ? styles.tabActive : styles.tabInactive}
-            onPress={() => setActiveFilter("friends")}
-          >
-            <Text style={activeFilter === "friends" ? styles.tabActiveText : styles.tabInactiveText}>
-              {t("filter_friends")}
-            </Text>
-          </Pressable>
-          <Pressable
-            style={activeFilter === "servers" ? styles.tabActive : styles.tabInactive}
-            onPress={() => setActiveFilter("servers")}
-          >
-            <Text style={activeFilter === "servers" ? styles.tabActiveText : styles.tabInactiveText}>
-              {t("filter_servers")}
-            </Text>
-          </Pressable>
-          <View style={styles.tabSpacer} />
-          <Pressable>
-            <Text style={styles.seeAllText}>{t("view_all")}</Text>
-          </Pressable>
-        </View>
-
         {/* Activity list */}
         <View style={styles.activityList}>
-          {displayData.map((item, index) => (
-            <ActivityRow
-              key={item.id}
-              item={item}
-              isLast={index === displayData.length - 1}
-              onPress={() => item.parcheId && router.push(`/(tabs)/parche?parcheId=${item.parcheId}`)}
-              onAvatarPress={() => item.parcheId && router.push(`/(tabs)/parche?parcheId=${item.parcheId}`)}
-            />
-          ))}
+          {loading ? (
+            <>
+              <SkeletonRow />
+              <SkeletonRow />
+              <SkeletonRow />
+            </>
+          ) : publicParches.length === 0 ? (
+            <Text style={{ color: "rgba(90, 90, 104, 1)", textAlign: "center", marginTop: 20, fontSize: 13 }}>
+              {t("no_activity") || "Sin actividad reciente"}
+            </Text>
+          ) : (
+            publicParches.map((item, index) => (
+              <ActivityRow
+                key={item.id}
+                item={item}
+                isLast={index === publicParches.length - 1}
+                onPress={() => item.parcheId && router.push(`/(tabs)/parche?parcheId=${item.parcheId}`)}
+                onAvatarPress={() => item.parcheId && router.push(`/(tabs)/parche?parcheId=${item.parcheId}`)}
+              />
+            ))
+          )}
         </View>
       </ScrollView>
 
@@ -323,7 +344,6 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "rgba(11, 13, 24, 1)",
   },
   scrollView: {
     flex: 1,
@@ -348,6 +368,10 @@ const styles = StyleSheet.create({
   },
   topBarSpacer: {
     flex: 1,
+  },
+  bellBtn: {
+    marginRight: 12,
+    padding: 4,
   },
 
   // ── Greeting row with large avatar ──
@@ -421,54 +445,6 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     lineHeight: 21,
     marginTop: 6,
-  },
-
-  // ── Tabs ──
-  tabsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 24,
-    gap: 10,
-    marginTop: 28,
-  },
-  tabActive: {
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(99, 102, 241, 0.28)",
-    backgroundColor: "rgba(99, 102, 241, 0.18)",
-  },
-  tabActiveText: {
-    color: "rgba(129, 140, 248, 1)",
-    textAlign: "center",
-    fontSize: 14,
-    fontWeight: "500",
-    lineHeight: 18,
-  },
-  tabInactive: {
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.06)",
-  },
-  tabInactiveText: {
-    color: "rgba(56, 56, 90, 1)",
-    textAlign: "center",
-    fontSize: 14,
-    fontWeight: "500",
-    lineHeight: 18,
-  },
-  tabSpacer: {
-    flex: 1,
-  },
-  seeAllText: {
-    color: "rgba(143, 132, 224, 1)",
-    textAlign: "center",
-    fontSize: 12,
-    fontWeight: "500",
-    lineHeight: 18,
   },
 
   // ── Activity list ──

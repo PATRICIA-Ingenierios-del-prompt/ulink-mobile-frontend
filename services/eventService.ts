@@ -1,4 +1,5 @@
 import { apiClient } from "./apiClient";
+import { withCache } from "./cache";
 import type { Page, Pageable } from "./types";
 
 const BASE = "/api/events";
@@ -29,42 +30,50 @@ export interface EventResponse extends EventMapResponse {
 
 const pageParams = (p?: Pageable) => ({
   page: p?.page ?? 0,
-  size: p?.size ?? 200,
+  size: p?.size ?? 50, // Reduced default from 200 to 50 for performance
 });
 
 export const eventService = {
   async get(eventId: string): Promise<EventResponse> {
-    const { data } = await apiClient.get<EventResponse>(
-      `${BASE}/${eventId}`
+    return withCache(
+      `event:detail:${eventId}`,
+      () => apiClient.get<EventResponse>(`${BASE}/${eventId}`).then((r) => r.data),
+      120_000 // 2 min cache
     );
-    return data;
   },
 
   async publicMap(page?: Pageable): Promise<Page<EventMapResponse>> {
-    const { data } = await apiClient.get<Page<EventMapResponse>>(
-      `${BASE}/map`,
-      { params: pageParams(page) }
+    const p = pageParams(page);
+    return withCache(
+      `event:map:${p.page}:${p.size}`,
+      () => apiClient.get<Page<EventMapResponse>>(`${BASE}/map`, { params: p }).then((r) => r.data),
+      45_000 // 45 s cache for map events
     );
-    return data;
   },
 
   async myJoinedEvents(page?: Pageable): Promise<Page<EventMapResponse>> {
-    const { data } = await apiClient.get<Page<EventMapResponse>>(
-      `${BASE}/me`,
-      { params: pageParams(page) }
+    const p = pageParams(page);
+    return withCache(
+      `event:joined:${p.page}:${p.size}`,
+      () => apiClient.get<Page<EventMapResponse>>(`${BASE}/me`, { params: p }).then((r) => r.data),
+      30_000 // 30 s cache
     );
-    return data;
   },
 
   async myParchesEvents(page?: Pageable): Promise<Page<EventMapResponse>> {
-    const { data } = await apiClient.get<Page<EventMapResponse>>(
-      `${BASE}/me/parches/events`,
-      { params: pageParams(page) }
+    const p = pageParams(page);
+    return withCache(
+      `event:parches:${p.page}:${p.size}`,
+      () => apiClient.get<Page<EventMapResponse>>(`${BASE}/me/parches/events`, { params: p }).then((r) => r.data),
+      30_000 // 30 s cache
     );
-    return data;
   },
 
   async join(eventId: string): Promise<void> {
     await apiClient.post(`${BASE}/${eventId}/join`);
+  },
+
+  async createReport(eventId: string, body: { reportType: string; description: string }): Promise<void> {
+    await apiClient.post(`${BASE}/${eventId}/reports`, body);
   },
 };

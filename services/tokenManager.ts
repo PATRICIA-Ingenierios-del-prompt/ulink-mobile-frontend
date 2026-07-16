@@ -3,16 +3,25 @@ import * as SecureStore from "expo-secure-store";
 const ACCESS_KEY = "patricia_access_token";
 const REFRESH_KEY = "patricia_refresh_token";
 
+let cachedAccess: string | null = null;
+let cachedRefresh: string | null = null;
+
 export const tokenManager = {
   async getAccessToken(): Promise<string | null> {
-    return SecureStore.getItemAsync(ACCESS_KEY);
+    if (cachedAccess) return cachedAccess;
+    cachedAccess = await SecureStore.getItemAsync(ACCESS_KEY);
+    return cachedAccess;
   },
 
   async getRefreshToken(): Promise<string | null> {
-    return SecureStore.getItemAsync(REFRESH_KEY);
+    if (cachedRefresh) return cachedRefresh;
+    cachedRefresh = await SecureStore.getItemAsync(REFRESH_KEY);
+    return cachedRefresh;
   },
 
   async setTokens(accessToken: string, refreshToken: string): Promise<void> {
+    cachedAccess = accessToken;
+    cachedRefresh = refreshToken;
     await Promise.all([
       SecureStore.setItemAsync(ACCESS_KEY, accessToken),
       SecureStore.setItemAsync(REFRESH_KEY, refreshToken),
@@ -20,6 +29,8 @@ export const tokenManager = {
   },
 
   async clearTokens(): Promise<void> {
+    cachedAccess = null;
+    cachedRefresh = null;
     await Promise.all([
       SecureStore.deleteItemAsync(ACCESS_KEY),
       SecureStore.deleteItemAsync(REFRESH_KEY),

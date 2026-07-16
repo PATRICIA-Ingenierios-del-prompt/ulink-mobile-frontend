@@ -48,6 +48,30 @@
           "color": "#6C63FF",
           "defaultChannel": "default"
         }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "U-LINK necesita acceso a tu cámara para las videollamadas.",
+          "microphonePermission": "U-LINK necesita acceso a tu micrófono para las llamadas de voz."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "U-LINK necesita acceso al micrófono para enviar notas de voz."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "U-LINK necesita acceso a tus fotos para enviarlas por el chat.",
+          "cameraPermission": "U-LINK necesita acceso a la cámara para tomar fotos."
+        }
+      ],
+      [
+        "expo-document-picker",
+        {}
       ]
     ],
     "experiments": {

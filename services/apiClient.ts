@@ -5,6 +5,7 @@ import type { TokenResponse } from "./types";
 
 export const apiClient = axios.create({
   baseURL: API_URL,
+  timeout: 10_000, // 10 s — prevents infinite loading when backend is slow/down
   headers: { "Content-Type": "application/json" },
 });
 

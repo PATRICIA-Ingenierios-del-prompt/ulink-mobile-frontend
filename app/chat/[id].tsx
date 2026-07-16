@@ -18,6 +18,9 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { communicationService, type ChatMessage } from "@/services/communicationService";
 import { useAuth } from "@/hooks/useAuth";
 import { getChatSocket, type ChatMessage as WsChatMessage } from "@/services/chatSocket";
+import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
+import { Audio } from "expo-av";
 
 interface Message {
   id: string;
@@ -32,7 +35,7 @@ interface Message {
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
+  const { id, isDirect } = useLocalSearchParams();
   const { userId } = useAuth();
   const [text, setText] = useState("");
   const scrollRef = useRef<ScrollView>(null);
@@ -42,6 +45,7 @@ export default function ChatScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimer = useRef<NodeJS.Timeout | null>(null);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
 
   const [messages, setMessages] = useState<Message[]>([]);
 
@@ -80,9 +84,12 @@ export default function ChatScreen() {
   }, [chatId, userId]);
 
   const loadMessages = async () => {
-    if (!chatId) return;
+    if (!chatId || !userId) return;
     try {
-      const data = await communicationService.getMessages(chatId, 0, 50);
+      const data = isDirect === "true" 
+        ? await communicationService.getMessagesBetween(userId, chatId, 0, 50)
+        : await communicationService.getMessages(chatId, 0, 50);
+        
       const mapped: Message[] = (data.content || []).map((m) => ({
         id: m.id,
         sender: m.senderName || "Usuario",
@@ -128,81 +135,90 @@ export default function ChatScreen() {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [text, chatId]);
 
-  const startRecording = () => {
-    setIsRecording(true);
-    setRecordingSeconds(0);
-    recordingTimer.current = setInterval(() => {
-      setRecordingSeconds((s) => s + 1);
-    }, 1000);
+  const startRecording = async () => {
+    try {
+      await Audio.requestPermissionsAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      setRecording(recording);
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      
+      recordingTimer.current = setInterval(() => {
+        setRecordingSeconds((s) => s + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Failed to start recording", err);
+    }
   };
 
-  const stopRecording = (send: boolean) => {
+  const stopRecording = async (send: boolean) => {
     if (recordingTimer.current) {
       clearInterval(recordingTimer.current);
       recordingTimer.current = null;
     }
+    
     setIsRecording(false);
-    if (send && recordingSeconds > 0) {
-      const formatTime = (secs: number) => {
-        const m = Math.floor(secs / 60);
-        const s = secs % 60;
-        return `${m}:${s < 10 ? "0" : ""}${s}`;
-      };
-      const duration = formatTime(recordingSeconds);
-      const newMsg: Message = {
-        id: Math.random().toString(),
-        sender: "Tú",
-        text: `Nota de voz (${duration})`,
-        audioDuration: duration,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isMe: true,
-      };
-      setMessages((prev) => [...prev, newMsg]);
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+    
+    if (!recording) return;
+
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setRecording(null);
+
+      if (send && recordingSeconds > 0 && uri) {
+        const formatTime = (secs: number) => {
+          const m = Math.floor(secs / 60);
+          const s = secs % 60;
+          return `${m}:${s < 10 ? "0" : ""}${s}`;
+        };
+        const duration = formatTime(recordingSeconds);
+        
+        // Simulating upload and send
+        const newMsg: Message = {
+          id: Math.random().toString(),
+          sender: "Tú",
+          text: `Nota de voz (${duration})`,
+          audioDuration: duration,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isMe: true,
+        };
+        setMessages((prev) => [...prev, newMsg]);
+        setTimeout(() => {
+          scrollRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    } catch (error) {
+      console.error("Failed to stop recording", error);
     }
   };
 
-  const handleAttachFile = () => {
-    Alert.alert(
-      "Compartir archivo",
-      "Selecciona un archivo para enviar:",
-      [
-        {
-          text: "📄 Apuntes_Calculo_III.pdf",
-          onPress: () => {
-            const newMsg: Message = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              text: "Apuntes_Calculo_III.pdf",
-              fileType: "pdf",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "📊 Horario_Clases.png",
-          onPress: () => {
-            const newMsg: Message = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              text: "Horario_Clases.png",
-              fileType: "png",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "Cancelar",
-          style: "cancel"
-        }
-      ]
-    );
+  const handleAttachFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({});
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        const newMsg: Message = {
+          id: Math.random().toString(),
+          sender: "Tú",
+          text: file.name,
+          fileType: file.name.split('.').pop() || "file",
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isMe: true,
+        };
+        setMessages((prev) => [...prev, newMsg]);
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+      }
+    } catch (err) {
+      console.error("Document pick error", err);
+    }
   };
 
   const handleCamera = () => {
@@ -212,38 +228,44 @@ export default function ChatScreen() {
       [
         {
           text: "📸 Tomar foto",
-          onPress: () => {
-            const newMsg: Message = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              text: "Foto de la biblioteca",
-              image: "https://picsum.photos/id/1018/600/400",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setMessages((prev) => [...prev, newMsg]);
+          onPress: async () => {
+            const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+            if (permissionResult.granted === false) return;
+            const result = await ImagePicker.launchCameraAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              quality: 0.8,
+            });
+            if (!result.canceled) sendImageMessage(result.assets[0].uri);
           }
         },
         {
           text: "🖼️ Elegir de galería",
-          onPress: () => {
-            const newMsg: Message = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              text: "Meme_parcial.jpg",
-              image: "https://picsum.photos/id/1025/600/400",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setMessages((prev) => [...prev, newMsg]);
+          onPress: async () => {
+            const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (permissionResult.granted === false) return;
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              quality: 0.8,
+            });
+            if (!result.canceled) sendImageMessage(result.assets[0].uri);
           }
         },
-        {
-          text: "Cancelar",
-          style: "cancel"
-        }
+        { text: "Cancelar", style: "cancel" }
       ]
     );
+  };
+
+  const sendImageMessage = (uri: string) => {
+    const newMsg: Message = {
+      id: Math.random().toString(),
+      sender: "Tú",
+      text: "Foto enviada",
+      image: uri,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isMe: true,
+    };
+    setMessages((prev) => [...prev, newMsg]);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
   return (
@@ -403,7 +425,6 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "rgba(11, 13, 24, 1)",
   },
   header: {
     paddingTop: 8,
