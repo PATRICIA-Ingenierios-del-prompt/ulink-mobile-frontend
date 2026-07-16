@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, Pressable, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { Audio } from 'expo-av';
 
 import type { ViewStyle, StyleProp } from 'react-native';
@@ -11,45 +11,67 @@ export interface Bienestar3Props {
 }
 
 const SOUNDS_DATA = [
-  { id: 'lluvia', emoji: '🌧️', label: 'Lluvia', url: 'https://cdn.pixabay.com/download/audio/2021/08/04/audio_32c0dce5c0.mp3?filename=heavy-rain-nature-sounds-8186.mp3' },
-  { id: 'bosque', emoji: '🌿', label: 'Bosque', url: 'https://cdn.pixabay.com/download/audio/2021/08/09/audio_82da41d01f.mp3?filename=forest-with-small-river-birds-and-nature-field-recording-6735.mp3' },
-  { id: 'olas', emoji: '🌊', label: 'Olas', url: 'https://cdn.pixabay.com/download/audio/2021/09/06/audio_24a2dfdc5e.mp3?filename=ocean-wave-1-6849.mp3' },
-  { id: 'lofi', emoji: '🎵', label: 'Lo-fi', url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf7eb.mp3?filename=lofi-study-112191.mp3' },
-  { id: 'viento', emoji: '💨', label: 'Viento', url: 'https://cdn.pixabay.com/download/audio/2022/02/07/audio_a405c10557.mp3?filename=wind-outside-sound-ambient-141941.mp3' },
-  { id: 'hoguera', emoji: '🔥', label: 'Hoguera', url: 'https://cdn.pixabay.com/download/audio/2021/08/04/audio_7311d4d38e.mp3?filename=crackling-fire-14454.mp3' },
-  { id: 'cafe', emoji: '☕', label: 'Café', url: 'https://cdn.pixabay.com/download/audio/2021/08/09/audio_f53587002b.mp3?filename=coffee-shop-chatter-34674.mp3' },
-  { id: 'cosmos', emoji: '🌌', label: 'Cosmos', url: 'https://cdn.pixabay.com/download/audio/2021/11/24/audio_27ed90bb54.mp3?filename=space-ambience-56265.mp3' },
+  { id: 'lluvia', emoji: '🌧️', label: 'Lluvia', url: 'https://assets.mixkit.co/active_storage/sfx/2515/2515-preview.mp3' },
+  { id: 'bosque', emoji: '🌿', label: 'Bosque', url: 'https://assets.mixkit.co/active_storage/sfx/2500/2500-preview.mp3' },
+  { id: 'olas', emoji: '🌊', label: 'Olas', url: 'https://assets.mixkit.co/active_storage/sfx/1195/1195-preview.mp3' },
+  { id: 'lofi', emoji: '🎵', label: 'Lo-fi', url: 'https://assets.mixkit.co/active_storage/sfx/143/143-preview.mp3' },
+  { id: 'viento', emoji: '💨', label: 'Viento', url: 'https://assets.mixkit.co/active_storage/sfx/2416/2416-preview.mp3' },
+  { id: 'hoguera', emoji: '🔥', label: 'Hoguera', url: 'https://assets.mixkit.co/active_storage/sfx/2951/2951-preview.mp3' },
+  { id: 'cafe', emoji: '☕', label: 'Café', url: 'https://assets.mixkit.co/active_storage/sfx/2917/2917-preview.mp3' },
+  { id: 'cosmos', emoji: '🌌', label: 'Cosmos', url: 'https://assets.mixkit.co/active_storage/sfx/2569/2569-preview.mp3' },
 ];
 
 export function Bienestar3(props: Bienestar3Props) {
   const [activeSounds, setActiveSounds] = useState<{ [key: string]: Audio.Sound }>({});
+  const [loadingSounds, setLoadingSounds] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
-    // Establecer el modo de audio para que funcione en iOS en silencio
-    Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: true,
-    });
+    // Wrap in async function with try/catch to prevent web crashes
+    const setupAudio = async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+        });
+      } catch (e) {
+        console.log('Audio mode setup error (safe to ignore on web):', e);
+      }
+    };
+    setupAudio();
     
     // Cleanup sounds on unmount
     return () => {
-      Object.values(activeSounds).forEach(async (sound) => {
-        await sound.unloadAsync();
+      setActiveSounds((currentSounds) => {
+        Object.values(currentSounds).forEach(async (sound) => {
+          try {
+            await sound.stopAsync();
+            await sound.unloadAsync();
+          } catch (e) {
+            // Ignore unload errors
+          }
+        });
+        return {};
       });
     };
   }, []);
 
   const toggleSound = async (id: string, url: string) => {
+    if (loadingSounds[id]) return; // Prevent spam clicks
+    
     try {
+      setLoadingSounds(prev => ({ ...prev, [id]: true }));
+      
       if (activeSounds[id]) {
         // Stop and unload
         const sound = activeSounds[id];
         await sound.stopAsync();
         await sound.unloadAsync();
         
-        const newSounds = { ...activeSounds };
-        delete newSounds[id];
-        setActiveSounds(newSounds);
+        setActiveSounds(prev => {
+          const newSounds = { ...prev };
+          delete newSounds[id];
+          return newSounds;
+        });
       } else {
         // Load and play
         const { sound } = await Audio.Sound.createAsync(
@@ -58,8 +80,18 @@ export function Bienestar3(props: Bienestar3Props) {
         );
         setActiveSounds(prev => ({ ...prev, [id]: sound }));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.log('Error toggling sound', err);
+      // Fallback alert for the user to report exact error
+      import('react-native').then(({ Alert }) => {
+        Alert.alert('Error de audio', 'No se pudo cargar el sonido: ' + (err.message || 'Verifica tu conexión.'));
+      });
+    } finally {
+      setLoadingSounds(prev => {
+        const newLoading = { ...prev };
+        delete newLoading[id];
+        return newLoading;
+      });
     }
   };
 
@@ -70,22 +102,39 @@ export function Bienestar3(props: Bienestar3Props) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>Activa los que quieras combinar</Text>
+        <Text style={styles.title}>Activa los que quieras combinar 🎧</Text>
         
         <View style={styles.grid}>
           {SOUNDS_DATA.map((item) => {
             const isActive = !!activeSounds[item.id];
+            const isLoading = !!loadingSounds[item.id];
             return (
               <Pressable
                 key={item.id}
-                style={[styles.soundButton, isActive && styles.soundButtonActive]}
+                style={({ pressed }) => [
+                  styles.soundButton,
+                  isActive && styles.soundButtonActive,
+                  pressed && { transform: [{ scale: 0.96 }], opacity: 0.9 }
+                ]}
                 onPress={() => toggleSound(item.id, item.url)}
+                disabled={isLoading}
               >
-                <Text style={styles.emoji}>{item.emoji}</Text>
-                <Text style={styles.label}>{item.label}</Text>
+                <View style={styles.emojiContainer}>
+                  <Text style={styles.emoji}>{item.emoji}</Text>
+                  {isLoading && (
+                    <View style={styles.loadingOverlay}>
+                      <ActivityIndicator size="small" color={isActive ? "rgba(255,255,255,0.9)" : "rgba(99, 102, 241, 1)"} />
+                    </View>
+                  )}
+                </View>
+                
+                <Text style={[styles.label, isActive && styles.labelActive]}>{item.label}</Text>
+                
                 <View style={styles.statusRow}>
                   <View style={[styles.statusDot, isActive && styles.statusDotActive]} />
-                  <Text style={styles.statusText}>{isActive ? 'Reproduciendo' : 'Silencio'}</Text>
+                  <Text style={[styles.statusText, isActive && styles.statusTextActive]}>
+                    {isLoading ? 'Cargando...' : isActive ? 'Reproduciendo' : 'Silencio'}
+                  </Text>
                 </View>
               </Pressable>
             );
@@ -111,11 +160,12 @@ const styles = StyleSheet.create({
     gap: 24,
   },
   title: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: 'rgba(255, 255, 255, 0.85)',
     fontFamily: 'Inter',
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 16,
+    fontWeight: '600',
     textAlign: 'center',
+    marginBottom: 8,
   },
   grid: {
     flexDirection: 'row',
@@ -125,46 +175,89 @@ const styles = StyleSheet.create({
   },
   soundButton: {
     width: '45%',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: 'rgba(28, 30, 48, 0.6)',
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 12,
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
   },
   soundButtonActive: {
-    backgroundColor: 'rgba(99, 102, 241, 0.2)',
-    borderColor: 'rgba(99, 102, 241, 0.6)',
+    backgroundColor: 'rgba(99, 102, 241, 0.25)',
+    borderColor: 'rgba(129, 140, 248, 0.6)',
+    shadowColor: 'rgba(99, 102, 241, 0.5)',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  emojiContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+    position: 'relative',
   },
   emoji: {
     fontSize: 32,
   },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   label: {
-    color: 'rgba(255, 255, 255, 1)',
+    color: 'rgba(255, 255, 255, 0.7)',
     fontFamily: 'Inter',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
+  },
+  labelActive: {
+    color: 'rgba(255, 255, 255, 1)',
   },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 4,
+    gap: 6,
+    marginTop: 2,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   statusDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   statusDotActive: {
     backgroundColor: 'rgba(52, 211, 153, 1)',
+    shadowColor: 'rgba(52, 211, 153, 1)',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
   },
   statusText: {
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: 'rgba(255, 255, 255, 0.4)',
     fontFamily: 'Inter',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
+  },
+  statusTextActive: {
+    color: 'rgba(52, 211, 153, 0.9)',
+    fontWeight: '600',
   },
 });

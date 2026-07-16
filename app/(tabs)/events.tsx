@@ -205,6 +205,7 @@ export default function EventsScreen() {
         </View>
         <Pressable
           style={({ pressed }) => [styles.crearBtn, pressed && { opacity: 0.8, transform: [{ scale: 0.96 }] }]}
+          onPress={() => router.push('/create-event')}
         >
           <Ionicons name="add" size={16} color="rgba(255,255,255,1)" />
           <Text style={styles.crearBtnText}>Crear</Text>
@@ -303,7 +304,7 @@ export default function EventsScreen() {
                 <Pressable
                   key={event.eventId}
                   style={styles.eventCard}
-                  onPress={() => {/* TODO: navigate to event detail */}}
+                  onPress={() => router.push({ pathname: '/event-detail', params: { id: event.eventId } })}
                 >
                   <View style={[styles.eventEmojiWrap, { backgroundColor: color.replace("1)", "0.15)") }]}>
                     <Text style={styles.eventEmoji}>{emoji}</Text>
@@ -337,7 +338,10 @@ export default function EventsScreen() {
                   <Text style={styles.pinDetailSub}>{event.locationName || "Sin ubicación"}</Text>
                 </View>
               </View>
-              <Pressable style={[styles.pinDetailBtn, { borderColor: pin.borderColor }]}>
+              <Pressable 
+                style={[styles.pinDetailBtn, { borderColor: pin.borderColor }]}
+                onPress={() => router.push({ pathname: '/event-detail', params: { id: event.eventId } })}
+              >
                 <Text style={[styles.pinDetailBtnText, { color: pin.color }]}>Ver</Text>
               </Pressable>
             </View>

@@ -137,7 +137,6 @@ export default function RootLayout() {
             <Stack.Screen name="video-call" options={{ headerShown: false }} />
             <Stack.Screen name="monas" options={{ headerShown: false }} />
             <Stack.Screen name="create-parche" options={{ headerShown: false }} />
-            <Stack.Screen name="profile" options={{ headerShown: false }} />
             <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
             <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
             <Stack.Screen name="notifications" options={{ headerShown: false }} />

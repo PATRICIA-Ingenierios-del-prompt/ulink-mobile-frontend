@@ -9,6 +9,8 @@ import { parcheService } from "@/services/parcheService";
 import { useBoard } from "@/hooks/useBoard";
 import { useAuth } from "@/hooks/useAuth";
 import { ReportModal } from "@/components/ReportModal";
+import { communicationService } from "@/services/communicationService";
+import { getChatSocket } from "@/services/chatSocket";
 import type { ParcheResponse, ParcheCategory, UUID } from "@/services/types";
 import type { Stroke, Point } from "@/services/boardSocket";
 
@@ -74,33 +76,9 @@ export default function ParcheScreen() {
             <Pressable style={styles.actionButton}>
               <Ionicons name="search" size={20} color="rgba(255, 255, 255, 0.6)" />
             </Pressable>
-            <View>
-              <Pressable style={styles.actionButton} onPress={() => setShowMenu((m) => !m)}>
-                <Ionicons name="ellipsis-vertical" size={20} color="rgba(255, 255, 255, 0.6)" />
-              </Pressable>
-              {showMenu && (
-                <>
-                  <Pressable style={styles.menuBackdrop} onPress={() => setShowMenu(false)} />
-                  <View style={styles.dropdownMenu}>
-                    <Pressable
-                      style={({ pressed }) => [styles.dropdownItem, pressed && { backgroundColor: "rgba(255, 255, 255, 0.06)" }]}
-                      onPress={() => { setShowMenu(false); setPanel("miembros"); }}
-                    >
-                      <Ionicons name="people" size={16} color="rgba(143, 132, 224, 0.8)" />
-                      <Text style={styles.dropdownText}>Miembros</Text>
-                    </Pressable>
-                    <View style={styles.dropdownDivider} />
-                    <Pressable
-                      style={({ pressed }) => [styles.dropdownItem, pressed && { backgroundColor: "rgba(255, 255, 255, 0.06)" }]}
-                      onPress={() => { setShowMenu(false); setPanel("ajustes"); }}
-                    >
-                      <Ionicons name="settings" size={16} color="rgba(143, 132, 224, 0.8)" />
-                      <Text style={styles.dropdownText}>Ajustes</Text>
-                    </Pressable>
-                  </View>
-                </>
-              )}
-            </View>
+            <Pressable style={styles.actionButton} onPress={() => setShowMenu((m) => !m)}>
+              <Ionicons name="ellipsis-vertical" size={20} color="rgba(255, 255, 255, 0.6)" />
+            </Pressable>
           </View>
         </View>
 
@@ -164,7 +142,31 @@ export default function ParcheScreen() {
       {activeTab === "juegos" ? (
         <GamesView parcheId={parcheId} />
       ) : (
-        <ChatView activeTab={activeTab} />
+        <ChatView activeTab={activeTab} parcheId={parcheId} />
+      )}
+
+      {/* ── Dropdown Menu (full-screen backdrop) ── */}
+      {showMenu && (
+        <>
+          <Pressable style={styles.menuBackdrop} onPress={() => setShowMenu(false)} />
+          <View style={styles.dropdownMenu}>
+            <Pressable
+              style={({ pressed }) => [styles.dropdownItem, pressed && { backgroundColor: "rgba(255, 255, 255, 0.06)" }]}
+              onPress={() => { setShowMenu(false); setPanel("miembros"); }}
+            >
+              <Ionicons name="people" size={16} color="rgba(143, 132, 224, 0.8)" />
+              <Text style={styles.dropdownText}>Miembros</Text>
+            </Pressable>
+            <View style={styles.dropdownDivider} />
+            <Pressable
+              style={({ pressed }) => [styles.dropdownItem, pressed && { backgroundColor: "rgba(255, 255, 255, 0.06)" }]}
+              onPress={() => { setShowMenu(false); setPanel("ajustes"); }}
+            >
+              <Ionicons name="settings" size={16} color="rgba(143, 132, 224, 0.8)" />
+              <Text style={styles.dropdownText}>Ajustes</Text>
+            </Pressable>
+          </View>
+        </>
       )}
 
       {/* ── Panel Overlay (Miembros / Ajustes) ── */}
@@ -190,18 +192,12 @@ export default function ParcheScreen() {
   );
 }
 
-function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
+function ChatView({ activeTab = "anuncios", parcheId }: { activeTab?: string; parcheId?: string }) {
+  const { userId } = useAuth();
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<Array<{ id: string; sender: string; initials: string; text: string; time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string }>>([
-    {
-      id: "m1",
-      sender: "Valeria T.",
-      initials: "VT",
-      text: "📌 Parcial esta semana — viernes 8am, aula 301. ¡Suerte a todos!",
-      time: "9:00 AM",
-      isMe: false,
-    }
   ]);
+  const [loadingMessages, setLoadingMessages] = useState(true);
   const scrollRef = useRef<ScrollView>(null);
 
   // Recording State
@@ -209,8 +205,99 @@ function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Load message history from the API ──
+  useEffect(() => {
+    if (!parcheId) {
+      setLoadingMessages(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const page = await communicationService.getMessages(parcheId, 0, 50);
+        if (cancelled) return;
+        const mapped = (page.content || []).map((m) => {
+          const senderName = m.senderName || "Usuario";
+          const initials = senderName
+            .split(" ")
+            .map((w) => w[0])
+            .slice(0, 2)
+            .join("")
+            .toUpperCase();
+          return {
+            id: m.id,
+            sender: senderName,
+            initials,
+            text: m.content,
+            time: new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            isMe: m.senderId === userId,
+            image: m.type === "IMAGE" ? m.fileUrl : undefined,
+            audioDuration: m.type === "AUDIO" && m.duration ? formatAudioDuration(m.duration) : undefined,
+          };
+        });
+        setMessages(mapped);
+      } catch {
+        // Failed to load — keep empty
+      } finally {
+        if (!cancelled) setLoadingMessages(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [parcheId, userId]);
+
+  // ── Connect to WebSocket for real-time messages ──
+  useEffect(() => {
+    if (!parcheId || !userId) return;
+    const socket = getChatSocket();
+    socket.activate();
+
+    const unsub = socket.subscribeToParche(parcheId, {
+      onMessage: (msg) => {
+        const senderName = msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario");
+        const initials = senderName
+          .split(" ")
+          .map((w) => w[0])
+          .slice(0, 2)
+          .join("")
+          .toUpperCase();
+        const mapped = {
+          id: msg.id,
+          sender: senderName,
+          initials,
+          text: msg.content,
+          time: new Date(msg.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          isMe: msg.senderId === userId,
+          image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
+        };
+        setMessages((prev) => [...prev, mapped]);
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+      },
+    });
+
+    return () => {
+      unsub();
+      socket.deactivate();
+    };
+  }, [parcheId, userId]);
+
+  const formatAudioDuration = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  };
+
   const handleSend = () => {
     if (text.trim().length === 0) return;
+    // Send via WebSocket if parcheId available
+    if (parcheId) {
+      try {
+        const socket = getChatSocket();
+        socket.sendMessage(parcheId, text.trim(), "TEXT");
+      } catch {
+        // Fallback: add optimistic message
+      }
+    }
+    // Optimistic local add
     setMessages((prev) => [
       ...prev,
       {
@@ -243,12 +330,7 @@ function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
     }
     setIsRecording(false);
     if (send && recordingSeconds > 0) {
-      const formatTime = (secs: number) => {
-        const m = Math.floor(secs / 60);
-        const s = secs % 60;
-        return `${m}:${s < 10 ? "0" : ""}${s}`;
-      };
-      const duration = formatTime(recordingSeconds);
+      const duration = formatAudioDuration(recordingSeconds);
       const newMsg = {
         id: Math.random().toString(),
         sender: "Tú",
@@ -365,57 +447,70 @@ function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
           showsVerticalScrollIndicator={false}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
         >
-          {messages.map((msg) => (
-            <View key={msg.id} style={[styles.messageRow, msg.isMe && styles.messageRowMe]}>
-              {!msg.isMe && (
-                <View style={styles.messageAvatarBox}>
-                  <View style={styles.messageAvatar}>
-                    <Text style={styles.messageAvatarText}>{msg.initials}</Text>
-                  </View>
-                </View>
-              )}
-              
-              <View style={[styles.messageContentWrap, msg.isMe && styles.messageContentWrapMe]}>
-                <Text style={[styles.messageSender, msg.isMe && styles.messageSenderMe]}>
-                  {msg.isMe ? "Tú" : msg.sender}
-                </Text>
-                <View style={[styles.messageBubble, msg.isMe ? styles.messageBubbleMe : styles.messageBubbleOther]}>
-                  {msg.image ? (
-                    <View style={styles.imageMessageWrap}>
-                      <Image source={{ uri: msg.image }} style={styles.messageImage} resizeMode="cover" />
-                      {msg.text ? <Text style={[styles.messageText, msg.isMe && styles.messageTextMe, { marginTop: 8 }]}>{msg.text}</Text> : null}
-                    </View>
-                  ) : msg.fileType ? (
-                    <View style={styles.fileMessageWrap}>
-                      <Ionicons name="document-text" size={28} color={msg.isMe ? "#fff" : "rgba(129, 140, 248, 1)"} />
-                      <View style={styles.fileMessageInfo}>
-                        <Text style={[styles.fileMessageName, msg.isMe && styles.fileMessageNameMe]}>{msg.text}</Text>
-                        <Text style={styles.fileMessageSize}>1.2 MB • {msg.fileType.toUpperCase()}</Text>
-                      </View>
-                    </View>
-                  ) : msg.audioDuration ? (
-                    <View style={styles.audioMessageWrap}>
-                      <Ionicons name="play" size={20} color={msg.isMe ? "#fff" : "rgba(129, 140, 248, 1)"} />
-                      <View style={styles.audioWaveform}>
-                        <View style={[styles.waveformBar, { height: 8 }, msg.isMe && styles.waveformBarMe]} />
-                        <View style={[styles.waveformBar, { height: 16 }, msg.isMe && styles.waveformBarMe]} />
-                        <View style={[styles.waveformBar, { height: 12 }, msg.isMe && styles.waveformBarMe]} />
-                        <View style={[styles.waveformBar, { height: 20 }, msg.isMe && styles.waveformBarMe]} />
-                        <View style={[styles.waveformBar, { height: 14 }, msg.isMe && styles.waveformBarMe]} />
-                        <View style={[styles.waveformBar, { height: 8 }, msg.isMe && styles.waveformBarMe]} />
-                      </View>
-                      <Text style={[styles.audioDurationText, msg.isMe && styles.audioDurationTextMe]}>{msg.audioDuration}</Text>
-                    </View>
-                  ) : (
-                    <Text style={[styles.messageText, msg.isMe && styles.messageTextMe]}>
-                      {msg.text}
-                    </Text>
-                  )}
-                </View>
-                <Text style={[styles.messageTime, msg.isMe && styles.messageTimeMe]}>{msg.time}</Text>
-              </View>
+          {loadingMessages ? (
+            <View style={styles.chatLoadingWrap}>
+              <ActivityIndicator size="large" color="rgba(99, 102, 241, 1)" />
+              <Text style={styles.chatLoadingText}>Cargando mensajes…</Text>
             </View>
-          ))}
+          ) : messages.length === 0 ? (
+            <View style={styles.chatLoadingWrap}>
+              <Ionicons name="chatbubbles-outline" size={36} color="rgba(143, 132, 224, 0.3)" />
+              <Text style={styles.chatLoadingText}>Aún no hay mensajes en #{activeTab}</Text>
+              <Text style={[styles.chatLoadingText, { fontSize: 12 }]}>¡Sé el primero en escribir!</Text>
+            </View>
+          ) : (
+            messages.map((msg) => (
+              <View key={msg.id} style={[styles.messageRow, msg.isMe && styles.messageRowMe]}>
+                {!msg.isMe && (
+                  <View style={styles.messageAvatarBox}>
+                    <View style={styles.messageAvatar}>
+                      <Text style={styles.messageAvatarText}>{msg.initials}</Text>
+                    </View>
+                  </View>
+                )}
+                
+                <View style={[styles.messageContentWrap, msg.isMe && styles.messageContentWrapMe]}>
+                  <Text style={[styles.messageSender, msg.isMe && styles.messageSenderMe]}>
+                    {msg.isMe ? "Tú" : msg.sender}
+                  </Text>
+                  <View style={[styles.messageBubble, msg.isMe ? styles.messageBubbleMe : styles.messageBubbleOther]}>
+                    {msg.image ? (
+                      <View style={styles.imageMessageWrap}>
+                        <Image source={{ uri: msg.image }} style={styles.messageImage} resizeMode="cover" />
+                        {msg.text ? <Text style={[styles.messageText, msg.isMe && styles.messageTextMe, { marginTop: 8 }]}>{msg.text}</Text> : null}
+                      </View>
+                    ) : msg.fileType ? (
+                      <View style={styles.fileMessageWrap}>
+                        <Ionicons name="document-text" size={28} color={msg.isMe ? "#fff" : "rgba(129, 140, 248, 1)"} />
+                        <View style={styles.fileMessageInfo}>
+                          <Text style={[styles.fileMessageName, msg.isMe && styles.fileMessageNameMe]}>{msg.text}</Text>
+                          <Text style={styles.fileMessageSize}>1.2 MB • {msg.fileType.toUpperCase()}</Text>
+                        </View>
+                      </View>
+                    ) : msg.audioDuration ? (
+                      <View style={styles.audioMessageWrap}>
+                        <Ionicons name="play" size={20} color={msg.isMe ? "#fff" : "rgba(129, 140, 248, 1)"} />
+                        <View style={styles.audioWaveform}>
+                          <View style={[styles.waveformBar, { height: 8 }, msg.isMe && styles.waveformBarMe]} />
+                          <View style={[styles.waveformBar, { height: 16 }, msg.isMe && styles.waveformBarMe]} />
+                          <View style={[styles.waveformBar, { height: 12 }, msg.isMe && styles.waveformBarMe]} />
+                          <View style={[styles.waveformBar, { height: 20 }, msg.isMe && styles.waveformBarMe]} />
+                          <View style={[styles.waveformBar, { height: 14 }, msg.isMe && styles.waveformBarMe]} />
+                          <View style={[styles.waveformBar, { height: 8 }, msg.isMe && styles.waveformBarMe]} />
+                        </View>
+                        <Text style={[styles.audioDurationText, msg.isMe && styles.audioDurationTextMe]}>{msg.audioDuration}</Text>
+                      </View>
+                    ) : (
+                      <Text style={[styles.messageText, msg.isMe && styles.messageTextMe]}>
+                        {msg.text}
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={[styles.messageTime, msg.isMe && styles.messageTimeMe]}>{msg.time}</Text>
+                </View>
+              </View>
+            ))
+          )}
         </ScrollView>
 
         {/* ── Chat Input ── */}
@@ -445,6 +540,8 @@ function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
                   placeholderTextColor="rgba(90, 90, 104, 1)"
                   value={text}
                   onChangeText={setText}
+                  onSubmitEditing={handleSend}
+                  returnKeyType="send"
                 />
                 <View style={styles.chatInputActions}>
                   {text.trim().length > 0 ? (
@@ -1885,11 +1982,12 @@ const styles = StyleSheet.create({
   menuBackdrop: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 99,
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
   },
   dropdownMenu: {
     position: "absolute",
-    top: 44,
-    right: 0,
+    top: 56,
+    right: 16,
     width: 180,
     backgroundColor: "rgba(22, 24, 40, 0.97)",
     borderWidth: 1,
@@ -1921,10 +2019,23 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.06)",
   },
 
+  // ── Chat Loading ──
+  chatLoadingWrap: {
+    alignItems: "center",
+    paddingVertical: 60,
+    gap: 10,
+  },
+  chatLoadingText: {
+    color: "rgba(143, 132, 224, 0.4)",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+
   // ── Panel Overlay ──
   panelOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 50,
+    backgroundColor: "rgba(11, 13, 24, 1)",
   },
   panelContainer: {
     flex: 1,

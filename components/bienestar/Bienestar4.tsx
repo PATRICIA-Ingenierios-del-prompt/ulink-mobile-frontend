@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet } from 'react-native';
-import { View, Text, Pressable, ScrollView } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { StyleSheet, View, Text, Pressable, ScrollView } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing, withRepeat, withSequence } from 'react-native-reanimated';
+import { Audio } from 'expo-av';
 
 import type { ViewStyle, StyleProp } from 'react-native';
 
@@ -17,9 +17,9 @@ const TECHNIQUES = [
     label: '4-7-8',
     steps: ['Inhala 4s', 'Sostén 7s', 'Exhala 8s'],
     sequence: [
-      { phase: 'Inhala', duration: 4000, scale: 1.5 },
-      { phase: 'Sostén', duration: 7000, scale: 1.5 },
-      { phase: 'Exhala', duration: 8000, scale: 1 },
+      { phase: 'Inhala', duration: 4000, scale: 1.5, color: 'rgba(52, 211, 153, 0.4)' },
+      { phase: 'Sostén', duration: 7000, scale: 1.5, color: 'rgba(245, 158, 11, 0.4)' },
+      { phase: 'Exhala', duration: 8000, scale: 1, color: 'rgba(99, 102, 241, 0.4)' },
     ],
   },
   {
@@ -27,10 +27,10 @@ const TECHNIQUES = [
     label: 'Box',
     steps: ['Inhala 4s', 'Sostén 4s', 'Exhala 4s', 'Sostén 4s'],
     sequence: [
-      { phase: 'Inhala', duration: 4000, scale: 1.5 },
-      { phase: 'Sostén', duration: 4000, scale: 1.5 },
-      { phase: 'Exhala', duration: 4000, scale: 1 },
-      { phase: 'Sostén', duration: 4000, scale: 1 },
+      { phase: 'Inhala', duration: 4000, scale: 1.5, color: 'rgba(52, 211, 153, 0.4)' },
+      { phase: 'Sostén', duration: 4000, scale: 1.5, color: 'rgba(245, 158, 11, 0.4)' },
+      { phase: 'Exhala', duration: 4000, scale: 1, color: 'rgba(99, 102, 241, 0.4)' },
+      { phase: 'Sostén', duration: 4000, scale: 1, color: 'rgba(245, 158, 11, 0.4)' },
     ],
   },
   {
@@ -38,8 +38,8 @@ const TECHNIQUES = [
     label: 'Calma',
     steps: ['Inhala 4s', 'Exhala 6s'],
     sequence: [
-      { phase: 'Inhala', duration: 4000, scale: 1.5 },
-      { phase: 'Exhala', duration: 6000, scale: 1 },
+      { phase: 'Inhala', duration: 4000, scale: 1.5, color: 'rgba(52, 211, 153, 0.4)' },
+      { phase: 'Exhala', duration: 6000, scale: 1, color: 'rgba(99, 102, 241, 0.4)' },
     ],
   },
 ];
@@ -47,25 +47,60 @@ const TECHNIQUES = [
 export function Bienestar4(props: Bienestar4Props) {
   const [selectedTechnique, setSelectedTechnique] = useState('478');
   const [isActive, setIsActive] = useState(false);
-  const [currentPhase, setCurrentPhase] = useState('Toca para empezar');
+  const [currentPhase, setCurrentPhase] = useState('Toca Comenzar');
   const [countdown, setCountdown] = useState<number | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
   
   const technique = TECHNIQUES.find(t => t.key === selectedTechnique)!;
 
   const scale = useSharedValue(1);
+  const opacity = useSharedValue(0.3);
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
       transform: [{ scale: scale.value }],
     };
   });
+  
+  const glowStyle = useAnimatedStyle(() => {
+    return {
+      opacity: opacity.value,
+    };
+  });
 
-  const stopAnimation = useCallback(() => {
+  const stopAnimation = useCallback(async () => {
     setIsActive(false);
-    setCurrentPhase('Toca para empezar');
+    setCurrentPhase('Toca Comenzar');
     setCountdown(null);
     scale.value = withTiming(1, { duration: 500 });
-  }, [scale]);
+    opacity.value = withTiming(0.3, { duration: 500 });
+    
+    if (soundRef.current) {
+      await soundRef.current.stopAsync();
+    }
+  }, [scale, opacity]);
+
+  useEffect(() => {
+    const setupAudio = async () => {
+      try {
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: 'https://actions.google.com/sounds/v1/science_fiction/humming_drone.ogg' },
+          { isLooping: true, volume: 0.5 }
+        );
+        soundRef.current = sound;
+      } catch (e) {
+        console.log("Audio load error (safe on web):", e);
+      }
+    };
+    setupAudio();
+    
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.unloadAsync();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
@@ -73,6 +108,10 @@ export function Bienestar4(props: Bienestar4Props) {
     let isMounted = true;
 
     if (isActive) {
+      if (soundRef.current) {
+        soundRef.current.playAsync().catch(() => {});
+      }
+      
       const runSequence = async () => {
         let currentStepIndex = 0;
         
@@ -86,6 +125,8 @@ export function Bienestar4(props: Bienestar4Props) {
             duration: step.phase === 'Sostén' ? 0 : step.duration, 
             easing: Easing.inOut(Easing.ease) 
           });
+          
+          opacity.value = withTiming(step.phase === 'Inhala' ? 0.8 : 0.4, { duration: step.duration });
 
           let elapsed = 0;
           intervalId = setInterval(() => {
@@ -115,7 +156,7 @@ export function Bienestar4(props: Bienestar4Props) {
       clearTimeout(timeoutId);
       clearInterval(intervalId);
     };
-  }, [isActive, technique, scale]);
+  }, [isActive, technique, scale, opacity]);
 
   const handleToggle = () => {
     setIsActive(!isActive);
@@ -145,6 +186,7 @@ export function Bienestar4(props: Bienestar4Props) {
         </View>
 
         <View style={styles.circleWrapper}>
+          <Animated.View style={[styles.glowRing, glowStyle, animatedStyle]} />
           <Animated.View style={[styles.ring3, animatedStyle]} />
           <Animated.View style={[styles.ring2, animatedStyle]} />
           <Animated.View style={[styles.ring1, animatedStyle]} />
@@ -158,14 +200,21 @@ export function Bienestar4(props: Bienestar4Props) {
         <View style={styles.stepsContainer}>
           {technique.steps.map((step, i) => (
             <View key={i} style={styles.stepItem}>
-              <View style={styles.stepDot} />
+              <View style={[styles.stepDot, { backgroundColor: technique.sequence[i].color.replace('0.4', '1') }]} />
               <Text style={styles.stepText}>{step}</Text>
             </View>
           ))}
         </View>
 
-        <Pressable style={[styles.startButton, isActive && styles.stopButton]} onPress={handleToggle}>
-          <Text style={styles.startButtonText}>{isActive ? 'Detener' : 'Comenzar'}</Text>
+        <Pressable 
+          style={({ pressed }) => [
+            styles.startButton, 
+            isActive && styles.stopButton,
+            pressed && { transform: [{ scale: 0.96 }] }
+          ]} 
+          onPress={handleToggle}
+        >
+          <Text style={styles.startButtonText}>{isActive ? 'Detener Ejercicio' : 'Comenzar a Respirar'}</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -185,139 +234,168 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 40,
     alignItems: 'center',
-    gap: 24,
+    gap: 32,
   },
   techniqueSelector: {
     flexDirection: 'row',
     alignSelf: 'stretch',
-    gap: 8,
+    gap: 12,
+    paddingHorizontal: 8,
   },
   techButton: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: 999,
+    paddingVertical: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
     alignItems: 'center',
   },
   techButtonActive: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: 'rgba(99, 102, 241, 1)',
+    paddingVertical: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(99, 102, 241, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(129, 140, 248, 0.6)',
     alignItems: 'center',
+    shadowColor: 'rgba(99, 102, 241, 0.5)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   techLabel: {
-    color: 'rgba(90, 90, 104, 1)',
+    color: 'rgba(255, 255, 255, 0.5)',
     fontFamily: 'Inter',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '500',
-    lineHeight: 18,
   },
   techLabelActive: {
     color: 'rgba(255, 255, 255, 1)',
     fontFamily: 'Inter',
-    fontSize: 12,
-    fontWeight: '600',
-    lineHeight: 18,
+    fontSize: 13,
+    fontWeight: '700',
   },
   circleWrapper: {
-    width: 220,
-    height: 220,
+    width: 240,
+    height: 240,
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: 24,
+    marginVertical: 40,
+  },
+  glowRing: {
+    position: 'absolute',
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: 'rgba(99, 102, 241, 0.4)',
+    shadowColor: 'rgba(99, 102, 241, 1)',
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 30,
+    elevation: 10,
   },
   ring3: {
     position: 'absolute',
     width: 220,
     height: 220,
     borderRadius: 110,
-    backgroundColor: 'rgba(99, 102, 241, 0.06)',
+    backgroundColor: 'rgba(99, 102, 241, 0.1)',
   },
   ring2: {
     position: 'absolute',
     width: 170,
     height: 170,
     borderRadius: 85,
-    backgroundColor: 'rgba(99, 102, 241, 0.10)',
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
   },
   ring1: {
     position: 'absolute',
     width: 130,
     height: 130,
     borderRadius: 65,
-    backgroundColor: 'rgba(99, 102, 241, 0.16)',
+    backgroundColor: 'rgba(99, 102, 241, 0.25)',
   },
   circle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(99, 102, 241, 0.3)',
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.6)',
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: 'rgba(28, 30, 48, 0.9)',
+    borderWidth: 2,
+    borderColor: 'rgba(129, 140, 248, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
   },
   circleEmoji: {
     fontSize: 28,
   },
   circleLabel: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: 'rgba(255, 255, 255, 0.9)',
     fontFamily: 'Inter',
-    fontSize: 10,
-    fontWeight: '400',
+    fontSize: 12,
+    fontWeight: '600',
     textAlign: 'center',
-    paddingHorizontal: 8,
   },
   circleCountdown: {
-    color: 'rgba(255, 255, 255, 1)',
+    color: 'rgba(52, 211, 153, 1)',
     fontFamily: 'Inter',
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
   },
   stepsContainer: {
     flexDirection: 'row',
     alignSelf: 'stretch',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
     gap: 16,
     flexWrap: 'wrap',
   },
   stepItem: {
-    flexDirection: 'column',
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 8,
   },
   stepDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(58, 58, 68, 1)',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
   stepText: {
-    color: 'rgba(90, 90, 104, 1)',
+    color: 'rgba(255, 255, 255, 0.8)',
     fontFamily: 'Inter',
-    fontSize: 11,
-    fontWeight: '400',
+    fontSize: 13,
+    fontWeight: '500',
   },
   startButton: {
     alignSelf: 'stretch',
-    paddingVertical: 16,
-    borderRadius: 14,
+    paddingVertical: 18,
+    borderRadius: 20,
     backgroundColor: 'rgba(99, 102, 241, 1)',
     alignItems: 'center',
+    shadowColor: 'rgba(99, 102, 241, 0.5)',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
     elevation: 8,
   },
   stopButton: {
     backgroundColor: 'rgba(242, 63, 67, 1)',
+    shadowColor: 'rgba(242, 63, 67, 0.5)',
   },
   startButtonText: {
     color: 'rgba(255, 255, 255, 1)',
     fontFamily: 'Inter',
-    fontSize: 15,
-    fontWeight: '600',
-    lineHeight: 22,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });

@@ -153,6 +153,8 @@ export default function ParchesScreen() {
       ]);
       if (mine.status === "fulfilled") setMyParches(mine.value.content);
       if (publicP.status === "fulfilled") setPublicParches(publicP.value.content);
+    } catch {
+      // Ignore
     } finally {
       setLoadingParches(false);
     }

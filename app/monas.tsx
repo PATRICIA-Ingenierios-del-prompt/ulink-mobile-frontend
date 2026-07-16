@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, Stack } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as SecureStore from "expo-secure-store";
 
@@ -78,7 +78,16 @@ const DEFAULT_MONOS: MonoCard[] = [
 
 function MonoCardView({ mono }: { mono: MonoCard }) {
   return (
-    <View style={[styles.monoCard, { borderColor: mono.accentColor.replace("1)", "0.4)") }]}>
+    <Pressable 
+      style={[styles.monoCard, { borderColor: mono.accentColor.replace("1)", "0.4)") }]}
+      onPress={() => {
+        if (!mono.locked) {
+          Alert.alert(mono.name, `¡Tienes este mono en tu colección!\nRareza: ${mono.rarity}`);
+        } else {
+          Alert.alert("Bloqueado", "Abre sobres para intentar conseguir este mono.");
+        }
+      }}
+    >
       {/* Card header: number + brand */}
       <View style={styles.monoCardHeader}>
         <View style={[styles.monoCardNumber, { backgroundColor: mono.accentColor }]}>
@@ -123,7 +132,7 @@ function MonoCardView({ mono }: { mono: MonoCard }) {
 
       {/* Bottom glow line */}
       <View style={[styles.monoCardGlowLine, { backgroundColor: mono.accentColor }]} />
-    </View>
+    </Pressable>
   );
 }
 
@@ -178,6 +187,7 @@ export default function MonasScreen() {
 
   return (
     <SafeAreaView style={styles.root}>
+      <Stack.Screen options={{ headerShown: false }} />
       {/* ── Header ── */}
       <View style={styles.header}>
         <Pressable style={styles.headerBtn} onPress={() => router.back()}>
@@ -187,7 +197,22 @@ export default function MonasScreen() {
           <Text style={styles.headerLabel}>Colección</Text>
           <Text style={styles.headerTitle}>Álbum de Monos</Text>
         </View>
-        <Pressable style={styles.headerBtn}>
+        <Pressable 
+          style={styles.headerBtn}
+          onPress={() => {
+            Alert.alert("Opciones", "Selecciona una acción:", [
+              { 
+                text: "Reiniciar colección", 
+                onPress: async () => { 
+                  await SecureStore.deleteItemAsync("unlocked_monos"); 
+                  setMonos(DEFAULT_MONOS);
+                  Alert.alert("Colección reiniciada", "Tu álbum está en cero nuevamente.");
+                } 
+              },
+              { text: "Cancelar", style: "cancel" }
+            ]);
+          }}
+        >
           <Ionicons name="ellipsis-horizontal" size={20} color="rgba(255, 255, 255, 0.6)" />
         </Pressable>
       </View>
@@ -217,7 +242,10 @@ export default function MonasScreen() {
           <Pressable style={styles.openPackButton} onPress={openPack}>
             <Text style={styles.openPackButtonText}>Abrir Sobre</Text>
           </Pressable>
-          <Pressable style={styles.sectionInfoBtn}>
+          <Pressable 
+            style={styles.sectionInfoBtn}
+            onPress={() => Alert.alert("Información", "Aquí puedes ver tu colección de Monos U-Link. ¡Abre sobres para desbloquear nuevos monos raros, épicos y legendarios!")}
+          >
             <Ionicons name="information-circle-outline" size={22} color="rgba(99, 102, 241, 0.6)" />
           </Pressable>
         </View>
@@ -236,6 +264,7 @@ export default function MonasScreen() {
         <View style={styles.navMenu}>
           <Pressable
             style={({ pressed }) => [styles.navMenuItem, pressed && { backgroundColor: "rgba(255, 255, 255, 0.04)" }]}
+            onPress={() => Alert.alert("Descubrir", "Pronto podrás encontrar monos escondidos en el mapa de la ECI.")}
           >
             <View style={styles.navMenuIcon}>
               <Ionicons name="compass" size={18} color="rgba(236, 237, 248, 0.7)" />

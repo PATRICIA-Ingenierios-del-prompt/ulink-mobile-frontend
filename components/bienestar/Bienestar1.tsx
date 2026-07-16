@@ -189,14 +189,7 @@ export function Bienestar1(props: Bienestar1Props) {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 68 : 0}
         >
           <View style={[styles.bienestarTab, { flex: 1 }]}>
-            {/* Decorative paw prints */}
-            <View testID="59:557" style={styles.container8}>
-              <View testID="59:558" style={styles.container9}><Text testID="59:559" style={styles.__}>{`🐾`}</Text></View>
-              <View testID="59:560" style={styles.container10}><Text testID="59:561" style={styles.__2}>{`🐾`}</Text></View>
-              <View testID="59:562" style={styles.container11}><Text testID="59:563" style={styles.__3}>{`🐾`}</Text></View>
-              <View testID="59:564" style={styles.container12}><Text testID="59:565" style={styles.__4}>{`🐾`}</Text></View>
-              <View testID="59:566" style={styles.container13}><Text testID="59:567" style={styles.__5}>{`🐾`}</Text></View>
-            </View>
+
 
             {/* Mono header card */}
             <View testID="59:581" style={styles.container16}>
@@ -251,7 +244,7 @@ export function Bienestar1(props: Bienestar1Props) {
                   <View key={msg.id} style={[styles.msgRow, msg.isMe && styles.msgRowMe]}>
                     {!msg.isMe && (
                       <View style={styles.monoAvatar2}>
-                        <View style={styles.text4}><Text style={styles.__7}>{`🐕`}</Text></View>
+                        <Text style={{ fontSize: 14 }}>🐕</Text>
                       </View>
                     )}
                     <View style={[styles.msgContentWrap, msg.isMe && styles.msgContentWrapMe]}>
@@ -338,9 +331,6 @@ export function Bienestar1(props: Bienestar1Props) {
             </View>
           </View>
         </KeyboardAvoidingView>
-      </View>
-      <View testID="59:666" style={styles.container32}>
-        <View testID="59:667" style={styles.container33} />
       </View>
     </View>
   );
@@ -904,19 +894,13 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   monoAvatar2: {
-    flexDirection: 'row',
-    width: 26,
-    height: 26,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(251, 191, 36, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
-    flexShrink: 0,
-    borderBottomLeftRadius: 999,
-    borderBottomRightRadius: 999,
-    borderTopLeftRadius: 999,
-    borderTopRightRadius: 999,
-    shadowColor: 'rgba(251, 191, 36, 0.45098039507865906)',
-    shadowRadius: 10.4,
-    shadowOffset: {"width":0,"height":0},
+    marginBottom: 16,
   },
   text4: {
     width: 18,
@@ -1082,20 +1066,13 @@ const styles = StyleSheet.create({
     color: 'rgba(212, 168, 71, 1)',
     textAlign: 'center',
     fontFamily: 'Inter',
-    fontSize: 11,
-    fontStyle: 'normal',
+    fontSize: 12,
     fontWeight: '500',
-    lineHeight: 16.5,
   },
   monoChat3: {
     width: '100%',
-    height: 42.5,
-    paddingTop: 0,
-    paddingLeft: 16,
-    paddingBottom: 8,
-    paddingRight: 16,
-    flexDirection: 'column',
-    alignItems: 'flex-start',
+    paddingHorizontal: 0,
+    paddingBottom: 12,
     flexShrink: 0,
   },
   container30: {
@@ -1109,23 +1086,14 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   button6: {
-    width: 149.633,
-    height: 30.5,
-    paddingTop: 6,
-    paddingLeft: 12,
-    paddingBottom: 6,
-    paddingRight: 12,
-    flexDirection: 'column',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    borderBottomLeftRadius: 999,
-    borderBottomRightRadius: 999,
-    borderTopLeftRadius: 999,
-    borderTopRightRadius: 999,
+    borderRadius: 999,
     borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: 'rgba(251, 191, 36, 0.21960784494876862)',
-    backgroundColor: 'rgba(251, 191, 36, 0.0784313753247261)',
+    borderColor: 'rgba(251, 191, 36, 0.22)',
+    backgroundColor: 'rgba(251, 191, 36, 0.08)',
   },
   tengoAnsiedad__: {
     color: 'rgba(212, 168, 71, 1)',
@@ -1278,38 +1246,20 @@ const styles = StyleSheet.create({
   },
   monoChat4: {
     width: '100%',
-    height: 57.5,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
     paddingTop: 4,
-    paddingLeft: 16,
-    paddingBottom: 8,
-    paddingRight: 16,
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    flexShrink: 0,
   },
   container31: {
     flexDirection: 'row',
-    height: 45.5,
-    paddingTop: 12,
-    paddingLeft: 16,
-    paddingBottom: 12,
-    paddingRight: 16,
+    minHeight: 48,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     alignItems: 'center',
-    rowGap: 12,
-    columnGap: 12,
-    flexShrink: 0,
-    alignSelf: 'stretch',
-    borderBottomLeftRadius: 18,
-    borderBottomRightRadius: 18,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    borderRadius: 24,
     borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: 'rgba(251, 191, 36, 0.18039216101169586)',
-    backgroundColor: 'rgba(20, 16, 36, 0.8784313797950745)',
-    shadowColor: 'rgba(251, 191, 36, 0.05882352963089943)',
-    shadowRadius: 24,
-    shadowOffset: {"width":0,"height":0},
+    borderColor: 'rgba(251, 191, 36, 0.18)',
+    backgroundColor: 'rgba(20, 16, 36, 0.95)',
   },
   textInput: {
     width: 309,
