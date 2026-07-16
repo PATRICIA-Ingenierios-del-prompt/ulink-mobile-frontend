@@ -22,6 +22,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { matchingService } from "@/services/matchingService";
 import { userService } from "@/services/userService";
 import { ACCENT_COLORS } from "@/lib/colors";
+import { UserAvatar } from "@/components/UserAvatar";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const CARD_HEIGHT = SCREEN_HEIGHT * 0.60;
@@ -529,9 +530,11 @@ export default function MatchingScreen() {
           <View style={styles.topCenter}>
             <View style={styles.topDividerLine} />
           </View>
-          <Pressable style={styles.topAvatar} onPress={() => router.push("/profile")}>
-            <Text style={styles.topAvatarText}>{t("you")}</Text>
-          </Pressable>
+          <UserAvatar
+            size={42}
+            style={styles.topAvatar}
+            onPress={() => router.push("/profile")}
+          />
         </View>
         <PhotoGate
           userId={userId!}
@@ -554,9 +557,11 @@ export default function MatchingScreen() {
         <View style={styles.topCenter}>
           <View style={styles.topDividerLine} />
         </View>
-        <Pressable style={styles.topAvatar} onPress={() => router.push("/profile")}>
-          <Text style={styles.topAvatarText}>{t("you")}</Text>
-        </Pressable>
+        <UserAvatar
+            size={42}
+            style={styles.topAvatar}
+            onPress={() => router.push("/profile")}
+          />
       </View>
 
       {/* ── Title ── */}

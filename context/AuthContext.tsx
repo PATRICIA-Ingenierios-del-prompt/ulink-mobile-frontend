@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useEffect, useState } from "react";
 import { tokenManager } from "../services/tokenManager";
 import { userService } from "../services/userService";
+import { cache } from "../services/cache";
 import type { TokenResponse } from "../services/types";
 
 interface AuthContextValue {
@@ -8,11 +9,16 @@ interface AuthContextValue {
   userId: string | null;
   userEmail: string | null;
   userName: string | null;
+  userPhoto: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (tokens: TokenResponse) => Promise<void>;
   logout: () => Promise<void>;
+  /** Call after updating the profile so the top-bar avatar/name refresh immediately. */
+  refreshProfile: () => Promise<void>;
+  /** Legacy setters kept for back-compat with screens that called them directly. */
   setUserName: (name: string) => void;
+  setUserPhoto: (photo: string) => void;
 }
 
 export const AuthContext = createContext<AuthContextValue>({
@@ -20,26 +26,40 @@ export const AuthContext = createContext<AuthContextValue>({
   userId: null,
   userEmail: null,
   userName: null,
+  userPhoto: null,
   isAuthenticated: false,
   isLoading: true,
   login: async () => {},
   logout: async () => {},
+  refreshProfile: async () => {},
   setUserName: () => {},
+  setUserPhoto: () => {},
 });
 
-/** Fetch the real full name from the profile API, falling back to the JWT claim. */
-async function resolveUserName(
+/**
+ * Fetches nombre + foto from the Users service.
+ * Falls back to the JWT name claim when the API is unreachable.
+ * Clears any stale cached entry first so we always get the real data.
+ */
+async function resolveProfile(
   uid: string,
-  tokenFallback: string | null
-): Promise<string | null> {
+  tokenFallbackName: string | null
+): Promise<{ name: string | null; photo: string | null }> {
+  // Bust the cache so we don't serve a stale entry that predates the
+  // urlFotoPerfil→foto normalisation fix.
+  cache.invalidate(`user:perfil:${uid}`);
+
   try {
     const perfil = await userService.getPerfil(uid);
-    const name = [perfil.nombre, perfil.apellidos].filter(Boolean).join(" ").trim();
-    if (name) return name;
-  } catch {
-    // Network error or profile not yet created — fall through to JWT claim
+    console.log("[resolveProfile] perfil:", JSON.stringify(perfil, null, 2));
+    const name = [perfil.nombre, perfil.apellidos].filter(Boolean).join(" ").trim() || null;
+    const photo = perfil.foto ?? null;
+    console.log("[resolveProfile] resolved →", { name, photo });
+    return { name: name || tokenFallbackName, photo };
+  } catch (err: any) {
+    console.log("[resolveProfile] ERROR:", err?.message ?? err);
+    return { name: tokenFallbackName, photo: null };
   }
-  return tokenFallback;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -47,9 +67,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
+  const [userPhoto, setUserPhoto] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Restore session on mount
+  // ── Restore session on mount ──────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
@@ -59,11 +80,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setAccessToken(token);
           setUserId(uid);
           setUserEmail(tokenManager.getUserEmailFromToken(token));
-          // Hydrate name from profile API; fall back to JWT claim
-          const name = uid
-            ? await resolveUserName(uid, tokenManager.getUserNameFromToken(token))
-            : tokenManager.getUserNameFromToken(token);
-          setUserName(name);
+
+          if (uid) {
+            const { name, photo } = await resolveProfile(
+              uid,
+              tokenManager.getUserNameFromToken(token)
+            );
+            setUserName(name);
+            setUserPhoto(photo);
+          } else {
+            setUserName(tokenManager.getUserNameFromToken(token));
+          }
         }
       } catch {
         await tokenManager.clearTokens();
@@ -73,26 +100,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
+  // ── Login ─────────────────────────────────────────────────────────────────
   const login = useCallback(async (tokens: TokenResponse) => {
     await tokenManager.setTokens(tokens.accessToken, tokens.refreshToken);
     const uid = tokenManager.getUserIdFromToken(tokens.accessToken);
     setAccessToken(tokens.accessToken);
     setUserId(uid);
     setUserEmail(tokenManager.getUserEmailFromToken(tokens.accessToken));
-    // Hydrate name from profile API; fall back to JWT claim
-    const name = uid
-      ? await resolveUserName(uid, tokenManager.getUserNameFromToken(tokens.accessToken))
-      : tokenManager.getUserNameFromToken(tokens.accessToken);
-    setUserName(name);
+
+    if (uid) {
+      const { name, photo } = await resolveProfile(
+        uid,
+        tokenManager.getUserNameFromToken(tokens.accessToken)
+      );
+      setUserName(name);
+      setUserPhoto(photo);
+    } else {
+      setUserName(tokenManager.getUserNameFromToken(tokens.accessToken));
+    }
   }, []);
 
+  // ── Refresh profile (call after editing profile/photo) ───────────────────
+  const refreshProfile = useCallback(async () => {
+    const uid = userId;
+    if (!uid) return;
+    const token = await tokenManager.getAccessToken();
+    const { name, photo } = await resolveProfile(
+      uid,
+      token ? tokenManager.getUserNameFromToken(token) : null
+    );
+    if (name) setUserName(name);
+    if (photo) setUserPhoto(photo);
+  }, [userId]);
 
-
+  // ── Logout ────────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
     const refreshToken = await tokenManager.getRefreshToken();
     await tokenManager.clearTokens();
 
-    // Try to invalidate server-side, but don't block on failure
     if (refreshToken) {
       try {
         const { apiClient } = await import("../services/apiClient");
@@ -106,6 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserId(null);
     setUserEmail(null);
     setUserName(null);
+    setUserPhoto(null);
   }, []);
 
   return (
@@ -115,11 +161,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         userId,
         userEmail,
         userName,
+        userPhoto,
         isAuthenticated: !!accessToken,
         isLoading,
         login,
         logout,
+        refreshProfile,
         setUserName,
+        setUserPhoto,
       }}
     >
       {children}

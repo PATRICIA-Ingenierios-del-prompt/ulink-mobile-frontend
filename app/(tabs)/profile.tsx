@@ -44,7 +44,7 @@ function ActivityItem({ initials, name, action, time, color, noBorder }: any) {
 export default function ProfileScreen() {
   const router = useRouter();
   const { t } = useTranslation();
-  const { userId, userName, setUserName } = useContext(AuthContext);
+  const { userId, userName, setUserName, setUserPhoto, refreshProfile } = useContext(AuthContext);
 
   const [profile, setProfile] = useState<PerfilResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,17 +65,20 @@ export default function ProfileScreen() {
     try {
       const data = await userService.getPerfil(userId);
       setProfile(data);
-      // Keep auth context userName in sync with the real name from the backend
+      // Keep auth context in sync so the top-bar avatar/name update immediately
       const fullNameFromApi = [data.nombre, data.apellidos].filter(Boolean).join(" ").trim();
       if (fullNameFromApi) {
         setUserName(fullNameFromApi);
+      }
+      if (data.foto) {
+        setUserPhoto(data.foto);
       }
     } catch {
       // Profile may not exist yet — show defaults
     } finally {
       setLoading(false);
     }
-  }, [userId, setUserName]);
+  }, [userId, setUserName, setUserPhoto]);
 
   useEffect(() => {
     fetchProfile();
@@ -116,6 +119,8 @@ export default function ProfileScreen() {
       const updated = await userService.updatePerfil(userId, draft);
       setProfile((prev) => (prev ? { ...prev, ...updated } : updated));
       setIsEditing(false);
+      // Push the updated name + photo to AuthContext so every screen reflects the change
+      await refreshProfile();
     } catch (err: any) {
       Alert.alert("Error", "No se pudo guardar el perfil. Intenta de nuevo.");
     } finally {
