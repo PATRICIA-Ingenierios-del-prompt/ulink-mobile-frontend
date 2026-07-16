@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useEffect, useState } from "react";
 import { tokenManager } from "../services/tokenManager";
+import { userService } from "../services/userService";
 import type { TokenResponse } from "../services/types";
 
 interface AuthContextValue {
@@ -26,6 +27,21 @@ export const AuthContext = createContext<AuthContextValue>({
   setUserName: () => {},
 });
 
+/** Fetch the real full name from the profile API, falling back to the JWT claim. */
+async function resolveUserName(
+  uid: string,
+  tokenFallback: string | null
+): Promise<string | null> {
+  try {
+    const perfil = await userService.getPerfil(uid);
+    const name = [perfil.nombre, perfil.apellidos].filter(Boolean).join(" ").trim();
+    if (name) return name;
+  } catch {
+    // Network error or profile not yet created — fall through to JWT claim
+  }
+  return tokenFallback;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -39,10 +55,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const token = await tokenManager.getAccessToken();
         if (token) {
+          const uid = tokenManager.getUserIdFromToken(token);
           setAccessToken(token);
-          setUserId(tokenManager.getUserIdFromToken(token));
+          setUserId(uid);
           setUserEmail(tokenManager.getUserEmailFromToken(token));
-          setUserName(tokenManager.getUserNameFromToken(token));
+          // Hydrate name from profile API; fall back to JWT claim
+          const name = uid
+            ? await resolveUserName(uid, tokenManager.getUserNameFromToken(token))
+            : tokenManager.getUserNameFromToken(token);
+          setUserName(name);
         }
       } catch {
         await tokenManager.clearTokens();
@@ -54,10 +75,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (tokens: TokenResponse) => {
     await tokenManager.setTokens(tokens.accessToken, tokens.refreshToken);
+    const uid = tokenManager.getUserIdFromToken(tokens.accessToken);
     setAccessToken(tokens.accessToken);
-    setUserId(tokenManager.getUserIdFromToken(tokens.accessToken));
+    setUserId(uid);
     setUserEmail(tokenManager.getUserEmailFromToken(tokens.accessToken));
-    setUserName(tokenManager.getUserNameFromToken(tokens.accessToken));
+    // Hydrate name from profile API; fall back to JWT claim
+    const name = uid
+      ? await resolveUserName(uid, tokenManager.getUserNameFromToken(tokens.accessToken))
+      : tokenManager.getUserNameFromToken(tokens.accessToken);
+    setUserName(name);
   }, []);
 
 

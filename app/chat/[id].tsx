@@ -60,27 +60,51 @@ export default function ChatScreen() {
     if (!chatId || !userId) return;
     const socket = getChatSocket();
 
-    socket.activate();
+    // Only activate if not already active — the singleton may already be running
+    // from another screen (e.g. parche.tsx). Calling activate() on an already-
+    // connected client is a no-op, so this is safe.
+    if (!socket.connected) {
+      socket.activate();
+    }
 
-    const unsub = socket.subscribeToParche(chatId, {
-      onMessage: (msg: WsChatMessage) => {
-        const mapped: Message = {
-          id: msg.id,
-          sender: msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario"),
-          text: msg.content,
-          time: new Date(msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          isMe: msg.senderId === userId,
-          image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
-        };
-        setMessages((prev) => [...prev, mapped]);
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-      },
-    });
+    let unsub: () => void = () => {};
 
-    return () => {
-      unsub();
-      socket.deactivate();
+    const doSubscribe = () => {
+      unsub = socket.subscribeToParche(chatId, {
+        onMessage: (msg: WsChatMessage) => {
+          const mapped: Message = {
+            id: msg.id,
+            sender: msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario"),
+            text: msg.content,
+            time: new Date(msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isMe: msg.senderId === userId,
+            image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
+          };
+          setMessages((prev) => [...prev, mapped]);
+          setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+        },
+      });
     };
+
+    if (socket.connected) {
+      doSubscribe();
+    } else {
+      // Poll until STOMP handshake completes (typically <1 s)
+      const interval = setInterval(() => {
+        if (socket.connected) {
+          clearInterval(interval);
+          doSubscribe();
+        }
+      }, 100);
+      return () => {
+        clearInterval(interval);
+        unsub();
+      };
+    }
+
+    return () => unsub();
+    // NOTE: we intentionally do NOT deactivate the socket here.
+    // The singleton lifecycle is managed at a higher level (app root or parche screen).
   }, [chatId, userId]);
 
   const loadMessages = async () => {
@@ -115,22 +139,37 @@ export default function ChatScreen() {
   };
 
   const handleSend = useCallback(() => {
-    if (text.trim().length === 0) return;
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return;
+    setText("");
     const socket = getChatSocket();
+
     if (socket.connected) {
-      socket.sendMessage(chatId, text.trim());
-      setText("");
+      socket.sendMessage(chatId, trimmed);
     } else {
-      // Fallback: add locally if WS is down
-      const newMsg: Message = {
-        id: Math.random().toString(),
-        sender: "Tú",
-        text: text.trim(),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isMe: true,
-      };
-      setMessages((prev) => [...prev, newMsg]);
-      setText("");
+      // Socket still connecting — retry once it comes up (within ~2 s)
+      const interval = setInterval(() => {
+        if (socket.connected) {
+          clearInterval(interval);
+          socket.sendMessage(chatId, trimmed);
+        }
+      }, 100);
+      // Give up after 2 s and show a local-only message so the user sees their text
+      setTimeout(() => {
+        clearInterval(interval);
+        if (!socket.connected) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Math.random().toString(),
+              sender: "Tú",
+              text: trimmed,
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isMe: true,
+            },
+          ]);
+        }
+      }, 2000);
     }
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [text, chatId]);

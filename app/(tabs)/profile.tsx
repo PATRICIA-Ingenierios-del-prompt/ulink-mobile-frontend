@@ -44,7 +44,7 @@ function ActivityItem({ initials, name, action, time, color, noBorder }: any) {
 export default function ProfileScreen() {
   const router = useRouter();
   const { t } = useTranslation();
-  const { userId, userName } = useContext(AuthContext);
+  const { userId, userName, setUserName } = useContext(AuthContext);
 
   const [profile, setProfile] = useState<PerfilResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,12 +65,17 @@ export default function ProfileScreen() {
     try {
       const data = await userService.getPerfil(userId);
       setProfile(data);
+      // Keep auth context userName in sync with the real name from the backend
+      const fullNameFromApi = [data.nombre, data.apellidos].filter(Boolean).join(" ").trim();
+      if (fullNameFromApi) {
+        setUserName(fullNameFromApi);
+      }
     } catch {
       // Profile may not exist yet — show defaults
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, setUserName]);
 
   useEffect(() => {
     fetchProfile();

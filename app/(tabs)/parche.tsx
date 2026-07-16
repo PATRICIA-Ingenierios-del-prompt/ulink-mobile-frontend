@@ -130,12 +130,22 @@ export default function ParcheScreen() {
 
   const sendChatMessage = useCallback((content: string) => {
     if (!chatId || !socketRef.current) return;
-    if (!socketRef.current.connected) {
-      // Socket still connecting — silently drop; the user can try again in <1s.
-      console.warn("[chat] sendMessage skipped: STOMP not yet connected");
+    const socket = socketRef.current;
+
+    if (socket.connected) {
+      socket.sendMessage(chatId, content, "TEXT");
       return;
     }
-    socketRef.current.sendMessage(chatId, content, "TEXT");
+
+    // Socket still connecting — retry for up to 3 s instead of dropping the message
+    console.warn("[chat] sendMessage queued: STOMP not yet connected, retrying…");
+    const interval = setInterval(() => {
+      if (socket.connected) {
+        clearInterval(interval);
+        socket.sendMessage(chatId, content, "TEXT");
+      }
+    }, 100);
+    setTimeout(() => clearInterval(interval), 3000);
   }, [chatId]);
 
   return (

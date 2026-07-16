@@ -181,6 +181,16 @@ export default function HomeScreen() {
   const [publicParches, setPublicParches] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Derive initials from userName for the avatar
+  const userInitials = userName
+    ? userName
+        .split(" ")
+        .map((w) => w[0])
+        .slice(0, 2)
+        .join("")
+        .toUpperCase()
+    : "U";
+
   useEffect(() => {
     loadData();
   }, []);
@@ -293,7 +303,7 @@ export default function HomeScreen() {
             </View>
             <Pressable style={styles.bigAvatarWrap} onPress={() => router.push("/profile")}>
               <View style={styles.bigAvatar}>
-                <Text style={styles.bigAvatarText}>You</Text>
+                <Text style={styles.bigAvatarText}>{userInitials}</Text>
               </View>
               {/* Online indicator on avatar */}
               <View style={styles.bigAvatarOnline}>
