@@ -85,10 +85,12 @@ export class BoardSocket {
       beforeConnect: async () => {
         const token = (await tokenManager.getAccessToken()) ?? "";
         this.client.brokerURL = buildWsUrl(token);
+        this.client.connectHeaders = { Authorization: `Bearer ${token}` };
       },
-      reconnectDelay: 5000,
-      heartbeatIncoming: 4000,
-      heartbeatOutgoing: 4000,
+      brokerURL: buildWsUrl(""),
+      reconnectDelay: 4000,
+      heartbeatIncoming: 10000,
+      heartbeatOutgoing: 10000,
       debug: () => {},
       onConnect: () => {
         this._subscribe();
@@ -98,6 +100,9 @@ export class BoardSocket {
         console.error("[BoardSocket] STOMP error:", frame.headers["message"]);
       },
       onWebSocketClose: () => opts.onDisconnect?.(),
+      onWebSocketError: (event) => {
+        console.error("[BoardSocket] WebSocket error:", event);
+      },
     });
   }
 

@@ -584,7 +584,9 @@ function GamesView({ parcheId }: { parcheId?: string }) {
 
   // Drawing state
   const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
-  const [localPaths, setLocalPaths] = useState<Array<{ d: string; color: string; size: number }>>([]);
+
+  const CANVAS_WIDTH = 1400;
+  const CANVAS_HEIGHT = 700;
 
   const activeColorRef = useRef(activeColor);
   const activeToolRef = useRef(activeTool);
@@ -592,6 +594,16 @@ function GamesView({ parcheId }: { parcheId?: string }) {
   activeToolRef.current = activeTool;
 
   const currentPointsRef = useRef<Point[]>([]);
+  const canvasLayoutRef = useRef({ width: 1, height: 1 });
+
+  const scaleX = (x: number) => (x / canvasLayoutRef.current.width) * CANVAS_WIDTH;
+  const scaleY = (y: number) => (y / canvasLayoutRef.current.height) * CANVAS_HEIGHT;
+  const scaleWidth = (w: number) => (w / canvasLayoutRef.current.width) * CANVAS_WIDTH;
+
+  const toCanvasPoint = (x: number, y: number): Point => ({
+    x: scaleX(x),
+    y: scaleY(y),
+  });
 
   const pointsToSvgD = (pts: Point[]): string => {
     if (pts.length === 0) return "";
@@ -608,13 +620,13 @@ function GamesView({ parcheId }: { parcheId?: string }) {
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
-        const pt: Point = { x: locationX, y: locationY };
+        const pt = toCanvasPoint(locationX, locationY);
         currentPointsRef.current = [pt];
         setCurrentPoints([pt]);
       },
       onPanResponderMove: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
-        const pt: Point = { x: locationX, y: locationY };
+        const pt = toCanvasPoint(locationX, locationY);
         currentPointsRef.current = [...currentPointsRef.current, pt];
         setCurrentPoints([...currentPointsRef.current]);
       },
@@ -624,15 +636,13 @@ function GamesView({ parcheId }: { parcheId?: string }) {
           const isEraser = activeToolRef.current === "eraser";
           const color = isEraser ? "rgba(15, 20, 40, 1)" : activeColorRef.current;
           const width = isEraser ? 22 : 4;
+          const scaledWidth = scaleWidth(width);
           const stroke: Stroke = {
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             color,
-            width,
+            width: scaledWidth,
             points: pts,
           };
-          // Optimistic local add as SVG path
-          setLocalPaths((prev) => [...prev, { d: pointsToSvgD(pts), color, size: width }]);
-          // Send to other users
           sendStroke(stroke);
           currentPointsRef.current = [];
           setCurrentPoints([]);
@@ -642,12 +652,11 @@ function GamesView({ parcheId }: { parcheId?: string }) {
   ).current;
 
   const handleClear = () => {
-    setLocalPaths([]);
     clearBoard();
   };
 
   // Convert remote strokes to SVG paths
-  const remotePaths = useMemo(
+  const allPaths = useMemo(
     () =>
       remoteStrokes.map((s) => ({
         d: pointsToSvgD(s.points),
@@ -656,8 +665,6 @@ function GamesView({ parcheId }: { parcheId?: string }) {
       })),
     [remoteStrokes]
   );
-
-  const allPaths = useMemo(() => [...remotePaths, ...localPaths], [remotePaths, localPaths]);
 
   const COLORS = [
     "rgba(241, 245, 249, 1)",
@@ -718,8 +725,15 @@ function GamesView({ parcheId }: { parcheId?: string }) {
           <View style={[styles.lienzoBrushSize, { backgroundColor: activeColor }]} />
         </View>
         {/* Canvas area */}
-        <View style={styles.lienzoCanvas} {...panResponder.panHandlers}>
-          <Svg style={StyleSheet.absoluteFill}>
+        <View
+          style={styles.lienzoCanvas}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            canvasLayoutRef.current = { width, height };
+          }}
+          {...panResponder.panHandlers}
+        >
+          <Svg style={StyleSheet.absoluteFill} viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}>
             {allPaths.map((p, idx) => (
               <Path
                 key={idx}
@@ -735,7 +749,7 @@ function GamesView({ parcheId }: { parcheId?: string }) {
               <Path
                 d={pointsToSvgD(currentPoints)}
                 stroke={activeTool === "eraser" ? "rgba(15, 20, 40, 1)" : activeColor}
-                strokeWidth={activeTool === "eraser" ? 22 : 4}
+                strokeWidth={scaleWidth(activeTool === "eraser" ? 22 : 4)}
                 fill="none"
                 strokeLinecap="round"
                 strokeLinejoin="round"
