@@ -1,18 +1,27 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, PanResponder, Dimensions, KeyboardAvoidingView, Platform, Alert, Image, ActivityIndicator } from "react-native";
+import {
+  View, Text, StyleSheet, Pressable, ScrollView, TextInput,
+  PanResponder, Dimensions, KeyboardAvoidingView, Platform, Alert,
+  Image, ActivityIndicator
+} from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Path } from "react-native-svg";
 import { ParquesBoard } from "../../components/parques/ParquesBoard";
 import { parcheService } from "@/services/parcheService";
+import { communicationService, type ChatMessage } from "@/services/communicationService";
+import { ChatSocket, type ChatMessage as WsChatMessage } from "@/services/chatSocket";
 import { useBoard } from "@/hooks/useBoard";
 import { useAuth } from "@/hooks/useAuth";
 import { ReportModal } from "@/components/ReportModal";
+import { apiClient } from "@/services/apiClient";
 import type { ParcheResponse, ParcheCategory, UUID } from "@/services/types";
 import type { Stroke, Point } from "@/services/boardSocket";
+import * as ImagePicker from "expo-image-picker";
+import { Audio } from "expo-av";
 
-type SubTab = "anuncios" | "general" | "apuntes" | "juegos";
+type SubTab = "chat" | "lienzo" | "juegos" | "voz";
 type PanelView = "miembros" | "ajustes" | null;
 
 const CATEGORY_LABELS: Record<ParcheCategory, string> = {
@@ -29,21 +38,50 @@ export default function ParcheScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { parcheId } = useLocalSearchParams<{ parcheId?: string }>();
-  const [activeTab, setActiveTab] = useState<SubTab>("anuncios");
+  const { userId } = useAuth();
+  const [activeTab, setActiveTab] = useState<SubTab>("chat");
   const [panel, setPanel] = useState<PanelView>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [parche, setParche] = useState<ParcheResponse | null>(null);
   const [loadingParche, setLoadingParche] = useState(!!parcheId);
+  const [chatId, setChatId] = useState<string | null>(null);
 
+  // ── Chat state lifted here so it survives tab switches ──────────────────────
+  const [messages, setMessages] = useState<ChatMessageUI[]>([]);
+  const [chatLoading, setChatLoading] = useState(true);
+  const socketRef = useRef<ChatSocket | null>(null);
+  const unsubRef = useRef<(() => void) | null>(null);
+  const seenIds = useRef(new Set<string>());
+
+  // ── 1. Create socket ONCE when component mounts, exactly like web frontend ──
+  useEffect(() => {
+    const socket = new ChatSocket({
+      onConnect: () => console.log("[chat] STOMP conectado"),
+      onDisconnect: () => console.log("[chat] STOMP desconectado"),
+    });
+    socket.activate();
+    socketRef.current = socket;
+    return () => {
+      unsubRef.current?.();
+      socket.deactivate();
+      socketRef.current = null;
+    };
+  }, []);
+
+  // ── 2. Load parche details and resolve chatId ────────────────────────────────
   useEffect(() => {
     if (!parcheId) return;
     let cancelled = false;
     (async () => {
       try {
         const data = await parcheService.get(parcheId as UUID);
-        if (!cancelled) setParche(data);
+        if (!cancelled) {
+          setParche(data);
+          if (data.communication?.chatId) {
+            setChatId(data.communication.chatId);
+          }
+        }
       } catch {
-        // keep null — show fallback
       } finally {
         if (!cancelled) setLoadingParche(false);
       }
@@ -51,9 +89,121 @@ export default function ParcheScreen() {
     return () => { cancelled = true; };
   }, [parcheId]);
 
+  // ── 3. When chatId is known: load history + subscribe ───────────────────────
+  useEffect(() => {
+    if (!chatId || !userId) return;
+
+    unsubRef.current?.();
+    unsubRef.current = null;
+    setMessages([]);
+    seenIds.current.clear();
+    setChatLoading(true);
+
+    let alive = true;
+
+    communicationService.getMessages(chatId, 0, 50)
+      .then((data) => {
+        if (!alive) return;
+        const mapped: ChatMessageUI[] = [...(data.content || [])].reverse().map((m: ChatMessage) => {
+          seenIds.current.add(m.id);
+          return {
+            id: m.id,
+            sender: m.senderName || "Usuario",
+            text: m.content,
+            time: new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            isMe: m.senderId === userId,
+            image: m.type === "IMAGE" ? m.fileUrl : undefined,
+          };
+        });
+        setMessages(mapped);
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setChatLoading(false); });
+
+    const doSubscribe = () => {
+      if (!socketRef.current || !alive) return;
+      const unsub = socketRef.current.subscribeToParche(chatId, {
+        onMessage: (msg: WsChatMessage) => {
+          if (!alive) return;
+          if (seenIds.current.has(msg.id)) return;
+          seenIds.current.add(msg.id);
+          const mapped: ChatMessageUI = {
+            id: msg.id,
+            sender: msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario"),
+            text: msg.content,
+            time: new Date(msg.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            isMe: msg.senderId === userId,
+            image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
+          };
+          setMessages((prev) => [...prev, mapped]);
+        },
+      });
+      unsubRef.current = unsub;
+    };
+
+    if (socketRef.current?.connected) {
+      doSubscribe();
+    } else {
+      const checkId = setInterval(() => {
+        if (socketRef.current?.connected) {
+          clearInterval(checkId);
+          clearTimeout(timeout);
+          doSubscribe();
+        }
+      }, 500);
+      const timeout = setTimeout(() => clearInterval(checkId), 30000);
+      unsubRef.current = () => {
+        clearInterval(checkId);
+        clearTimeout(timeout);
+      };
+    }
+
+    return () => {
+      alive = false;
+      unsubRef.current?.();
+      unsubRef.current = null;
+    };
+  }, [chatId, userId]);
+
+  // ── sendMessage — uses the shared socket ────────────────────────────────────
+  const sendMessage = useCallback((content: string) => {
+    if (!chatId || !content.trim()) return;
+    const socket = socketRef.current;
+    if (socket?.connected) {
+      socket.sendMessage(chatId, content.trim());
+    } else {
+      const tempId = `local-${Date.now()}`;
+      setMessages((prev) => [...prev, {
+        id: tempId,
+        sender: "Tú",
+        text: content.trim(),
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        isMe: true,
+      }]);
+    }
+  }, [chatId]);
+
   const parcheTitle = parche?.name ?? "Parche";
   const parcheMembers = parche?.memberCount != null ? `${parche.memberCount} miembros` : "";
   const parcheEmoji = parche?.category ? CATEGORY_EMOJI[parche.category] : "📐";
+  const isPrivate = parche?.visibility === "PRIVATE";
+
+  const tabs: { id: SubTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { id: "chat", label: "Chat", icon: "chatbubbles-outline" },
+    { id: "lienzo", label: "Lienzo", icon: "layers-outline" },
+    { id: "juegos", label: "Juegos", icon: "game-controller-outline" },
+    ...(isPrivate ? [{ id: "voz" as const, label: "Voz", icon: "volume-high-outline" as const }] : []),
+  ];
+
+  if (loadingParche) {
+    return (
+      <SafeAreaView style={styles.root}>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator size="large" color="rgba(99, 102, 241, 1)" />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.root}>
@@ -106,66 +256,37 @@ export default function ParcheScreen() {
 
         {/* ── Tab Row ── */}
         <View style={styles.tabRow}>
-          <Pressable
-            style={[styles.tabButton, activeTab === "anuncios" && styles.tabButtonActive]}
-            onPress={() => setActiveTab("anuncios")}
-          >
-            <Ionicons
-              name="megaphone-outline"
-              size={14}
-              color={activeTab === "anuncios" ? "rgba(129, 140, 248, 1)" : "rgba(90, 90, 104, 1)"}
-            />
-            <Text style={[styles.tabText, activeTab === "anuncios" && styles.tabTextActive]}>
-              anuncios
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.tabButton, activeTab === "general" && styles.tabButtonActive]}
-            onPress={() => setActiveTab("general")}
-          >
-            <Ionicons
-              name="chatbubbles-outline"
-              size={14}
-              color={activeTab === "general" ? "rgba(129, 140, 248, 1)" : "rgba(90, 90, 104, 1)"}
-            />
-            <Text style={[styles.tabText, activeTab === "general" && styles.tabTextActive]}>general</Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.tabButton, activeTab === "apuntes" && styles.tabButtonActive]}
-            onPress={() => setActiveTab("apuntes")}
-          >
-            <Ionicons
-              name="document-text-outline"
-              size={14}
-              color={activeTab === "apuntes" ? "rgba(129, 140, 248, 1)" : "rgba(90, 90, 104, 1)"}
-            />
-            <Text style={[styles.tabText, activeTab === "apuntes" && styles.tabTextActive]}>apuntes</Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.tabButton, activeTab === "juegos" && styles.tabButtonActive]}
-            onPress={() => setActiveTab("juegos")}
-          >
-            <Ionicons
-              name="game-controller-outline"
-              size={14}
-              color={activeTab === "juegos" ? "rgba(129, 140, 248, 1)" : "rgba(90, 90, 104, 1)"}
-            />
-            <Text style={[styles.tabText, activeTab === "juegos" && styles.tabTextActive]}>
-              juegos
-            </Text>
-          </Pressable>
+          {tabs.map((tab) => (
+            <Pressable
+              key={tab.id}
+              style={[styles.tabButton, activeTab === tab.id && styles.tabButtonActive]}
+              onPress={() => setActiveTab(tab.id)}
+            >
+              <Ionicons
+                name={tab.icon}
+                size={14}
+                color={activeTab === tab.id ? "rgba(129, 140, 248, 1)" : "rgba(90, 90, 104, 1)"}
+              />
+              <Text style={[styles.tabText, activeTab === tab.id && styles.tabTextActive]}>
+                {tab.label}
+              </Text>
+            </Pressable>
+          ))}
         </View>
       </View>
 
       {/* ── Content Area ── */}
-      {activeTab === "juegos" ? (
-        <GamesView parcheId={parcheId} />
-      ) : (
-        <ChatView activeTab={activeTab} />
+      {activeTab === "chat" && (
+        <ChatView
+          chatId={chatId}
+          messages={messages}
+          loading={chatLoading}
+          onSend={sendMessage}
+        />
       )}
+      {activeTab === "lienzo" && <LienzoView parcheId={parcheId} />}
+      {activeTab === "juegos" && <GamesView />}
+      {activeTab === "voz" && <VozView />}
 
       {/* ── Panel Overlay (Miembros / Ajustes) ── */}
       {panel && (
@@ -182,7 +303,11 @@ export default function ParcheScreen() {
                 <Ionicons name="close" size={20} color="rgba(255, 255, 255, 0.6)" />
               </Pressable>
             </View>
-            {panel === "miembros" ? <MembersView parcheName={parcheTitle} /> : <SettingsView parche={parche} parcheId={parcheId} />}
+            {panel === "miembros" ? (
+              <MembersView parcheId={parcheId} parcheName={parcheTitle} />
+            ) : (
+              <SettingsView parche={parche} parcheId={parcheId} />
+            )}
           </View>
         </View>
       )}
@@ -190,233 +315,176 @@ export default function ParcheScreen() {
   );
 }
 
-function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
-  const [text, setText] = useState("");
-  const [messages, setMessages] = useState<Array<{ id: string; sender: string; initials: string; text: string; time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string }>>([
-    {
-      id: "m1",
-      sender: "Valeria T.",
-      initials: "VT",
-      text: "📌 Parcial esta semana — viernes 8am, aula 301. ¡Suerte a todos!",
-      time: "9:00 AM",
-      isMe: false,
-    }
-  ]);
-  const scrollRef = useRef<ScrollView>(null);
+// ── Chat Tab ─────────────────────────────────────────────────────────────────
 
-  // Recording State
+interface ChatMessageUI {
+  id: string;
+  sender: string;
+  text: string;
+  time: string;
+  isMe: boolean;
+  image?: string;
+  fileType?: string;
+  audioDuration?: string;
+}
+
+interface ChatViewProps {
+  chatId: string | null;
+  messages: ChatMessageUI[];
+  loading: boolean;
+  onSend: (content: string) => void;
+}
+
+function ChatView({ chatId, messages, loading, onSend }: ChatViewProps) {
+  const [text, setText] = useState("");
+  const scrollRef = useRef<ScrollView>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
 
-  const handleSend = () => {
-    if (text.trim().length === 0) return;
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Math.random().toString(),
-        sender: "Tú",
-        initials: "TÚ",
-        text: text.trim(),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isMe: true,
-      }
-    ]);
+  const formatDur = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  };
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  }, [messages.length]);
+
+  const handleSend = useCallback(() => {
+    const content = text.trim();
+    if (!content || !chatId) return;
     setText("");
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+    onSend(content);
+  }, [text, chatId, onSend]);
+
+  const startRecording = async () => {
+    try {
+      await Audio.requestPermissionsAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      setRecording(recording);
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingTimer.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+    } catch (err) {
+      console.error("Failed to start recording", err);
+    }
   };
 
-  const startRecording = () => {
-    setIsRecording(true);
-    setRecordingSeconds(0);
-    recordingTimer.current = setInterval(() => {
-      setRecordingSeconds((s) => s + 1);
-    }, 1000);
-  };
-
-  const stopRecording = (send: boolean) => {
+  const stopRecording = async (send: boolean) => {
     if (recordingTimer.current) {
       clearInterval(recordingTimer.current);
       recordingTimer.current = null;
     }
     setIsRecording(false);
-    if (send && recordingSeconds > 0) {
-      const formatTime = (secs: number) => {
-        const m = Math.floor(secs / 60);
-        const s = secs % 60;
-        return `${m}:${s < 10 ? "0" : ""}${s}`;
-      };
-      const duration = formatTime(recordingSeconds);
-      const newMsg = {
-        id: Math.random().toString(),
-        sender: "Tú",
-        initials: "TÚ",
-        text: `Nota de voz (${duration})`,
-        audioDuration: duration,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isMe: true,
-      };
-      setMessages((prev) => [...prev, newMsg]);
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+    if (!recording) return;
+    try {
+      await recording.stopAndUnloadAsync();
+      setRecording(null);
+      if (send && recordingSeconds > 0) {
+        const duration = formatDur(recordingSeconds);
+        onSend(`🎤 Nota de voz (${duration})`);
+      }
+    } catch (error) {
+      console.error("Failed to stop recording", error);
     }
   };
 
-  const handleAttachFile = () => {
-    Alert.alert(
-      "Compartir archivo",
-      "Selecciona un archivo para enviar al parche:",
-      [
-        {
-          text: "📄 Apuntes_Calculo_III.pdf",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Apuntes_Calculo_III.pdf",
-              fileType: "pdf",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setMessages((prev) => [...prev, newMsg]);
-          }
+  const handleCamera = () => {
+    Alert.alert("Compartir foto", "Selecciona una opción:", [
+      {
+        text: "📸 Tomar foto",
+        onPress: async () => {
+          const res = await ImagePicker.requestCameraPermissionsAsync();
+          if (!res.granted) return;
+          const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+          if (!result.canceled) onSend(`📷 ${result.assets[0].uri}`);
         },
-        {
-          text: "📊 Taller_1_Matrices.zip",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Taller_1_Matrices.zip",
-              fileType: "zip",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setMessages((prev) => [...prev, newMsg]);
-          }
+      },
+      {
+        text: "🖼️ Elegir de galería",
+        onPress: async () => {
+          const res = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!res.granted) return;
+          const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+          if (!result.canceled) onSend(`📷 ${result.assets[0].uri}`);
         },
-        {
-          text: "Cancelar",
-          style: "cancel"
-        }
-      ]
-    );
+      },
+      { text: "Cancelar", style: "cancel" },
+    ]);
   };
 
-  const handleCamera = () => {
-    Alert.alert(
-      "Compartir foto",
-      "Selecciona una opción:",
-      [
-        {
-          text: "📸 Tomar foto",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Foto tomada en el campus",
-              image: "https://picsum.photos/id/1018/600/400",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "🖼️ Elegir de galería",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Meme_parcial.jpg",
-              image: "https://picsum.photos/id/1025/600/400",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "Cancelar",
-          style: "cancel"
-        }
-      ]
+  if (!chatId) {
+    return (
+      <View style={styles.placeholderView}>
+        <Ionicons name="chatbubbles-outline" size={48} color="rgba(90, 90, 104, 0.4)" />
+        <Text style={styles.placeholderText}>Chat no disponible</Text>
+      </View>
     );
-  };
+  }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
-    >
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={0}>
       <View style={styles.chatRoot}>
-        <ScrollView
-          ref={scrollRef}
-          style={styles.chatScroll}
-          contentContainerStyle={styles.chatScrollContent}
-          showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
-        >
-          {messages.map((msg) => (
-            <View key={msg.id} style={[styles.messageRow, msg.isMe && styles.messageRowMe]}>
-              {!msg.isMe && (
-                <View style={styles.messageAvatarBox}>
-                  <View style={styles.messageAvatar}>
-                    <Text style={styles.messageAvatarText}>{msg.initials}</Text>
-                  </View>
-                </View>
-              )}
-              
-              <View style={[styles.messageContentWrap, msg.isMe && styles.messageContentWrapMe]}>
-                <Text style={[styles.messageSender, msg.isMe && styles.messageSenderMe]}>
-                  {msg.isMe ? "Tú" : msg.sender}
-                </Text>
-                <View style={[styles.messageBubble, msg.isMe ? styles.messageBubbleMe : styles.messageBubbleOther]}>
-                  {msg.image ? (
-                    <View style={styles.imageMessageWrap}>
-                      <Image source={{ uri: msg.image }} style={styles.messageImage} resizeMode="cover" />
-                      {msg.text ? <Text style={[styles.messageText, msg.isMe && styles.messageTextMe, { marginTop: 8 }]}>{msg.text}</Text> : null}
-                    </View>
-                  ) : msg.fileType ? (
-                    <View style={styles.fileMessageWrap}>
-                      <Ionicons name="document-text" size={28} color={msg.isMe ? "#fff" : "rgba(129, 140, 248, 1)"} />
-                      <View style={styles.fileMessageInfo}>
-                        <Text style={[styles.fileMessageName, msg.isMe && styles.fileMessageNameMe]}>{msg.text}</Text>
-                        <Text style={styles.fileMessageSize}>1.2 MB • {msg.fileType.toUpperCase()}</Text>
-                      </View>
-                    </View>
-                  ) : msg.audioDuration ? (
-                    <View style={styles.audioMessageWrap}>
-                      <Ionicons name="play" size={20} color={msg.isMe ? "#fff" : "rgba(129, 140, 248, 1)"} />
-                      <View style={styles.audioWaveform}>
-                        <View style={[styles.waveformBar, { height: 8 }, msg.isMe && styles.waveformBarMe]} />
-                        <View style={[styles.waveformBar, { height: 16 }, msg.isMe && styles.waveformBarMe]} />
-                        <View style={[styles.waveformBar, { height: 12 }, msg.isMe && styles.waveformBarMe]} />
-                        <View style={[styles.waveformBar, { height: 20 }, msg.isMe && styles.waveformBarMe]} />
-                        <View style={[styles.waveformBar, { height: 14 }, msg.isMe && styles.waveformBarMe]} />
-                        <View style={[styles.waveformBar, { height: 8 }, msg.isMe && styles.waveformBarMe]} />
-                      </View>
-                      <Text style={[styles.audioDurationText, msg.isMe && styles.audioDurationTextMe]}>{msg.audioDuration}</Text>
-                    </View>
-                  ) : (
-                    <Text style={[styles.messageText, msg.isMe && styles.messageTextMe]}>
-                      {msg.text}
-                    </Text>
-                  )}
-                </View>
-                <Text style={[styles.messageTime, msg.isMe && styles.messageTimeMe]}>{msg.time}</Text>
+        {loading ? (
+          <ActivityIndicator size="large" color="rgba(99, 102, 241, 1)" style={{ flex: 1 }} />
+        ) : (
+          <ScrollView
+            ref={scrollRef}
+            style={styles.chatScroll}
+            contentContainerStyle={styles.chatScrollContent}
+            showsVerticalScrollIndicator={false}
+            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+          >
+            {messages.length === 0 && (
+              <View style={styles.placeholderView}>
+                <Text style={[styles.placeholderText, { fontSize: 13 }]}>No hay mensajes aún. ¡Sé el primero en escribir!</Text>
               </View>
-            </View>
-          ))}
-        </ScrollView>
+            )}
+            {messages.map((msg, idx) => (
+              <View key={msg.id || `msg-${idx}`} style={[styles.messageRow, msg.isMe && styles.messageRowMe]}>
+                {!msg.isMe && (
+                  <View style={[styles.messageAvatarBox, { paddingBottom: 16 }]}>
+                    <View style={styles.messageAvatar}>
+                      <Text style={styles.messageAvatarText}>{msg.sender.charAt(0).toUpperCase()}</Text>
+                    </View>
+                  </View>
+                )}
+                <View style={[styles.messageContentWrap, msg.isMe && styles.messageContentWrapMe]}>
+                  <Text style={[styles.messageSender, msg.isMe && styles.messageSenderMe]}>
+                    {msg.isMe ? "Tú" : msg.sender}
+                  </Text>
+                  <View style={[styles.messageBubble, msg.isMe ? styles.messageBubbleMe : styles.messageBubbleOther]}>
+                    {msg.image ? (
+                      <View style={styles.imageMessageWrap}>
+                        <Image source={{ uri: msg.image }} style={styles.messageImage} resizeMode="cover" />
+                        {msg.text ? <Text style={[styles.messageText, msg.isMe && styles.messageTextMe, { marginTop: 8 }]}>{msg.text}</Text> : null}
+                      </View>
+                    ) : msg.audioDuration ? (
+                      <View style={styles.audioMessageWrap}>
+                        <Ionicons name="play" size={20} color={msg.isMe ? "#fff" : "rgba(129, 140, 248, 1)"} />
+                        <View style={styles.audioWaveform}>
+                          {[8, 16, 12, 20, 14, 8].map((h, i) => (
+                            <View key={i} style={[styles.waveformBar, { height: h }, msg.isMe && styles.waveformBarMe]} />
+                          ))}
+                        </View>
+                        <Text style={[styles.audioDurationText, msg.isMe && styles.audioDurationTextMe]}>{msg.audioDuration}</Text>
+                      </View>
+                    ) : (
+                      <Text style={[styles.messageText, msg.isMe && styles.messageTextMe]}>{msg.text}</Text>
+                    )}
+                  </View>
+                  <Text style={[styles.messageTime, msg.isMe && styles.messageTimeMe]}>{msg.time}</Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        )}
 
         {/* ── Chat Input ── */}
         <View style={styles.chatInputContainer}>
@@ -436,12 +504,12 @@ function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
               </>
             ) : (
               <>
-                <Pressable style={styles.chatAttachBtn} onPress={handleAttachFile}>
+                <Pressable style={styles.chatAttachBtn} onPress={() => Alert.alert("Subir archivo", "Función próximamente")}>
                   <Ionicons name="add" size={24} color="rgba(255, 255, 255, 0.6)" />
                 </Pressable>
                 <TextInput
                   style={styles.chatInput}
-                  placeholder={`Escribe algo en #${activeTab}…`}
+                  placeholder="Escribe un mensaje…"
                   placeholderTextColor="rgba(90, 90, 104, 1)"
                   value={text}
                   onChangeText={setText}
@@ -471,29 +539,28 @@ function ChatView({ activeTab = "anuncios" }: { activeTab?: string }) {
   );
 }
 
-function GamesView({ parcheId }: { parcheId?: string }) {
+// ── Lienzo Tab ───────────────────────────────────────────────────────────────
+
+const COLORS = [
+  "rgba(241, 245, 249, 1)", "rgba(74, 222, 128, 1)", "rgba(244, 114, 182, 1)",
+  "rgba(251, 146, 60, 1)", "rgba(34, 211, 238, 1)", "rgba(148, 163, 184, 1)",
+  "rgba(248, 113, 113, 1)", "rgba(167, 139, 250, 1)",
+];
+
+function LienzoView({ parcheId }: { parcheId?: string }) {
   const { userId } = useAuth();
-  const [activeTool, setActiveTool] = useState<string>("pen");
-  const [activeColor, setActiveColor] = useState<string>("rgba(241, 245, 249, 1)");
-  const [activeGame, setActiveGame] = useState<"list" | "lienzo" | "parques">("list");
-
+  const [activeTool, setActiveTool] = useState("pen");
+  const [activeColor, setActiveColor] = useState(COLORS[0]);
   const canvasId = parcheId ?? null;
-  const {
-    strokes: remoteStrokes,
-    isConnected,
-    sendStroke,
-    clearBoard,
-  } = useBoard(activeGame === "lienzo" ? canvasId : null, userId ?? "anonymous");
-
-  // Drawing state
+  const { strokes: remoteStrokes, isConnected, sendStroke, clearBoard } = useBoard(
+    canvasId, userId ?? "anonymous"
+  );
   const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
   const [localPaths, setLocalPaths] = useState<Array<{ d: string; color: string; size: number }>>([]);
-
   const activeColorRef = useRef(activeColor);
   const activeToolRef = useRef(activeTool);
   activeColorRef.current = activeColor;
   activeToolRef.current = activeTool;
-
   const currentPointsRef = useRef<Point[]>([]);
 
   const pointsToSvgD = (pts: Point[]): string => {
@@ -529,13 +596,9 @@ function GamesView({ parcheId }: { parcheId?: string }) {
           const width = isEraser ? 22 : 4;
           const stroke: Stroke = {
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            color,
-            width,
-            points: pts,
+            color, width, points: pts,
           };
-          // Optimistic local add as SVG path
           setLocalPaths((prev) => [...prev, { d: pointsToSvgD(pts), color, size: width }]);
-          // Send to other users
           sendStroke(stroke);
           currentPointsRef.current = [];
           setCurrentPoints([]);
@@ -549,109 +612,71 @@ function GamesView({ parcheId }: { parcheId?: string }) {
     clearBoard();
   };
 
-  // Convert remote strokes to SVG paths
   const remotePaths = useMemo(
-    () =>
-      remoteStrokes.map((s) => ({
-        d: pointsToSvgD(s.points),
-        color: s.color,
-        size: s.width,
-      })),
+    () => remoteStrokes.map((s) => ({ d: pointsToSvgD(s.points), color: s.color, size: s.width })),
     [remoteStrokes]
   );
-
   const allPaths = useMemo(() => [...remotePaths, ...localPaths], [remotePaths, localPaths]);
 
-  const COLORS = [
-    "rgba(241, 245, 249, 1)",
-    "rgba(74, 222, 128, 1)",
-    "rgba(244, 114, 182, 1)",
-    "rgba(251, 146, 60, 1)",
-    "rgba(34, 211, 238, 1)",
-    "rgba(148, 163, 184, 1)",
-    "rgba(248, 113, 113, 1)",
-    "rgba(167, 139, 250, 1)",
-  ];
-
-  if (activeGame === "lienzo") {
-    return (
-      <View style={styles.gameFullView}>
-        {/* Toolbar */}
-        <View style={styles.lienzoToolbar}>
-          <View style={styles.lienzoToolLeft}>
-            <Pressable
-              style={[styles.lienzoToolBtn, activeTool === "pen" && styles.lienzoToolBtnActive]}
-              onPress={() => setActiveTool("pen")}
-            >
-              <Text style={styles.lienzoToolIcon}>✏️</Text>
-            </Pressable>
-            <Text style={[styles.lienzoToolLabel, activeTool === "pen" && styles.lienzoToolLabelActive]}>Pluma</Text>
-            <Pressable
-              style={[styles.lienzoToolBtn, activeTool === "eraser" && styles.lienzoToolBtnActive]}
-              onPress={() => setActiveTool("eraser")}
-            >
-              <Ionicons name="remove-circle-outline" size={16} color={activeTool === "eraser" ? "rgba(129, 140, 248, 1)" : "rgba(255,255,255,0.5)"} />
-            </Pressable>
-            <Text style={[styles.lienzoToolLabel, activeTool === "eraser" && styles.lienzoToolLabelActive]}>Borrador</Text>
-          </View>
-          <View style={styles.lienzoToolRight}>
-            <View style={[styles.connectionDot, { backgroundColor: isConnected ? "rgba(35, 165, 89, 1)" : "rgba(248, 113, 113, 1)" }]} />
-            <Pressable style={styles.lienzoClrBtn} onPress={() => { setActiveGame("list"); handleClear(); }}>
-              <Text style={styles.lienzoBackText}>Volver</Text>
-            </Pressable>
-            <Pressable style={styles.lienzoClearBtn} onPress={handleClear}>
-              <Text style={styles.lienzoClearText}>Limpiar</Text>
-            </Pressable>
-          </View>
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={styles.lienzoToolbar}>
+        <View style={styles.lienzoToolLeft}>
+          <Pressable style={[styles.lienzoToolBtn, activeTool === "pen" && styles.lienzoToolBtnActive]} onPress={() => setActiveTool("pen")}>
+            <Text style={styles.lienzoToolIcon}>✏️</Text>
+          </Pressable>
+          <Text style={[styles.lienzoToolLabel, activeTool === "pen" && styles.lienzoToolLabelActive]}>Pluma</Text>
+          <Pressable style={[styles.lienzoToolBtn, activeTool === "eraser" && styles.lienzoToolBtnActive]} onPress={() => setActiveTool("eraser")}>
+            <Ionicons name="remove-circle-outline" size={16} color={activeTool === "eraser" ? "rgba(129, 140, 248, 1)" : "rgba(255,255,255,0.5)"} />
+          </Pressable>
+          <Text style={[styles.lienzoToolLabel, activeTool === "eraser" && styles.lienzoToolLabelActive]}>Borrador</Text>
         </View>
-        {/* Color palette */}
-        <View style={styles.lienzoPalette}>
-          {COLORS.map((color) => (
-            <Pressable
-              key={color}
-              style={[
-                styles.lienzoPaletteColor,
-                { backgroundColor: color },
-                activeColor === color && styles.lienzoPaletteColorActive,
-              ]}
-              onPress={() => setActiveColor(color)}
-            />
-          ))}
-          <View style={styles.lienzoPaletteSep} />
-          <View style={[styles.lienzoBrushSize, { backgroundColor: activeColor }]} />
-        </View>
-        {/* Canvas area */}
-        <View style={styles.lienzoCanvas} {...panResponder.panHandlers}>
-          <Svg style={StyleSheet.absoluteFill}>
-            {allPaths.map((p, idx) => (
-              <Path
-                key={idx}
-                d={p.d}
-                stroke={p.color}
-                strokeWidth={p.size}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ))}
-            {currentPoints.length > 0 && (
-              <Path
-                d={pointsToSvgD(currentPoints)}
-                stroke={activeTool === "eraser" ? "rgba(15, 20, 40, 1)" : activeColor}
-                strokeWidth={activeTool === "eraser" ? 22 : 4}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            )}
-          </Svg>
-          {allPaths.length === 0 && currentPoints.length === 0 && (
-            <Text style={styles.lienzoCanvasHint}>Dibuja aquí con tu parche 🎨</Text>
-          )}
+        <View style={styles.lienzoToolRight}>
+          <View style={[styles.connectionDot, { backgroundColor: isConnected ? "rgba(35, 165, 89, 1)" : "rgba(248, 113, 113, 1)" }]} />
+          <Pressable style={styles.lienzoClearBtn} onPress={handleClear}>
+            <Text style={styles.lienzoClearText}>Limpiar</Text>
+          </Pressable>
         </View>
       </View>
-    );
-  }
+      <View style={styles.lienzoPalette}>
+        {COLORS.map((color) => (
+          <Pressable
+            key={color}
+            style={[styles.lienzoPaletteColor, { backgroundColor: color }, activeColor === color && styles.lienzoPaletteColorActive]}
+            onPress={() => setActiveColor(color)}
+          />
+        ))}
+        <View style={styles.lienzoPaletteSep} />
+        <View style={[styles.lienzoBrushSize, { backgroundColor: activeColor }]} />
+      </View>
+      <View style={styles.lienzoCanvas} {...panResponder.panHandlers}>
+        <Svg style={StyleSheet.absoluteFill}>
+          {allPaths.map((p, idx) => (
+            <Path key={idx} d={p.d} stroke={p.color} strokeWidth={p.size} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          ))}
+          {currentPoints.length > 0 && (
+            <Path
+              d={pointsToSvgD(currentPoints)}
+              stroke={activeTool === "eraser" ? "rgba(15, 20, 40, 1)" : activeColor}
+              strokeWidth={activeTool === "eraser" ? 22 : 4}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+        </Svg>
+        {allPaths.length === 0 && currentPoints.length === 0 && (
+          <Text style={styles.lienzoCanvasHint}>Dibuja aquí con tu parche 🎨</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ── Juegos Tab ───────────────────────────────────────────────────────────────
+
+function GamesView() {
+  const [activeGame, setActiveGame] = useState<"list" | "parques">("list");
 
   if (activeGame === "parques") {
     return (
@@ -667,43 +692,14 @@ function GamesView({ parcheId }: { parcheId?: string }) {
     );
   }
 
-  // Games list
   return (
-    <ScrollView
-      style={styles.gamesScroll}
-      contentContainerStyle={styles.gamesScrollContent}
-      showsVerticalScrollIndicator={false}
-    >
+    <ScrollView style={styles.gamesScroll} contentContainerStyle={styles.gamesScrollContent} showsVerticalScrollIndicator={false}>
       <Text style={styles.gamesSectionTitle}>Juegos del parche</Text>
 
-      {/* Lienzo Game Card */}
-      <Pressable style={styles.gameCardLienzo} onPress={() => setActiveGame("lienzo")}>
-        <View style={styles.gameCardInnerBorderLienzo}>
-          <View style={styles.gameIconRow}>
-            <View style={styles.gamePaletteIcon}>
-              <Text style={{ fontSize: 22 }}>🎨</Text>
-            </View>
-            <View style={styles.colorDotsWrap}>
-              {COLORS.slice(0, 6).map((c) => (
-                <View key={c} style={[styles.colorDot, { backgroundColor: c }]} />
-              ))}
-            </View>
-          </View>
-          <View style={styles.gameInfo}>
-            <Text style={styles.gameTitle}>Lienzo</Text>
-            <Text style={styles.gameDesc}>Dibuja con tu parche en tiempo real 🎨</Text>
-          </View>
-          <View style={styles.gamePlayBtn}>
-            <Text style={styles.gamePlayBtnText}>Jugar →</Text>
-          </View>
-        </View>
-      </Pressable>
-
-      {/* Parqués Game Card */}
       <Pressable style={styles.gameCardParques} onPress={() => setActiveGame("parques")}>
         <View style={styles.gameCardInnerBorderParques}>
           <View style={styles.gameIconRowParques}>
-            <View style={styles.parquesBoardSmall}>
+            <View style={styles.parquesBoard}>
               <View style={styles.parquesRow}>
                 <View style={[styles.parquesSquare, { backgroundColor: "rgba(59, 91, 219, 0.5)" }]} />
                 <View style={[styles.parquesSquare, { backgroundColor: "rgba(242, 63, 67, 0.5)" }]} />
@@ -729,116 +725,132 @@ function GamesView({ parcheId }: { parcheId?: string }) {
   );
 }
 
-// ─── Members View ─────────────────────────────────────────────────────────────
+// ── Voz Tab ───────────────────────────────────────────────────────────────────
 
-interface ParcheMember {
-  id: string;
-  name: string;
-  initials: string;
-  role: "admin" | "moderator" | "member";
-  status: "online" | "offline" | "away";
-  career: string;
-  joinDate: string;
+function VozView() {
+  return (
+    <View style={styles.placeholderView}>
+      <Ionicons name="volume-high-outline" size={48} color="rgba(99, 102, 241, 0.4)" />
+      <Text style={[styles.placeholderText, { marginTop: 12, fontSize: 16 }]}>Canales de voz</Text>
+      <Text style={[styles.placeholderText, { fontSize: 13, marginTop: 4 }]}>Próximamente</Text>
+    </View>
+  );
 }
 
-const PARCHE_MEMBERS: ParcheMember[] = [
-  { id: "1", name: "Valeria Torres", initials: "VT", role: "admin", status: "online", career: "Ingeniería de Sistemas", joinDate: " Ago 2025" },
-  { id: "2", name: "Santiago Moreno", initials: "SM", role: "admin", status: "online", career: "Ingeniería de Sistemas", joinDate: " Ago 2025" },
-  { id: "3", name: "Camila Ríos", initials: "CR", role: "moderator", status: "online", career: "Diseño de Software", joinDate: " Sep 2025" },
-  { id: "4", name: "Andrés Felipe", initials: "AF", role: "member", status: "away", career: "Ingeniería Electrónica", joinDate: " Oct 2025" },
-  { id: "5", name: "Laura Gómez", initials: "LG", role: "member", status: "online", career: "Ingeniería de Sistemas", joinDate: " Oct 2025" },
-  { id: "6", name: "Diego Ramírez", initials: "DR", role: "member", status: "offline", career: "Matemáticas Aplicadas", joinDate: " Nov 2025" },
-  { id: "7", name: "Isabella Cardona", initials: "IC", role: "member", status: "online", career: "Ingeniería de Sistemas", joinDate: " Nov 2025" },
-  { id: "8", name: "Mateo Ospina", initials: "MO", role: "member", status: "offline", career: "Física", joinDate: " Ene 2026" },
-  { id: "9", name: "Sofía Vélez", initials: "SV", role: "member", status: "online", career: "Ingeniería de Sistemas", joinDate: " Ene 2026" },
-  { id: "10", name: "Juan García", initials: "JG", role: "member", status: "online", career: "Ingeniería de Sistemas", joinDate: " Feb 2026" },
-];
+// ─── Members View ─────────────────────────────────────────────────────────────
 
-const ROLE_COLORS: Record<string, string> = {
-  admin: "rgba(242, 63, 67, 1)",
-  moderator: "rgba(240, 178, 50, 1)",
-  member: "rgba(143, 132, 224, 0.6)",
-};
+interface MemberProfile {
+  id: string;
+  name: string;
+  email: string;
+}
 
-const STATUS_COLORS: Record<string, string> = {
-  online: "rgba(35, 165, 89, 1)",
-  away: "rgba(240, 178, 50, 1)",
-  offline: "rgba(90, 90, 104, 1)",
-};
-
-function MembersView({ parcheName }: { parcheName: string }) {
+function MembersView({ parcheId, parcheName }: { parcheId?: string; parcheName: string }) {
   const router = useRouter();
+  const { userId } = useAuth();
+  const [memberIds, setMemberIds] = useState<string[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, MemberProfile>>({});
+  const [loading, setLoading] = useState(true);
   const [reportTarget, setReportTarget] = useState<{ name: string } | null>(null);
 
-  const sorted = [...PARCHE_MEMBERS].sort((a, b) => {
-    const roleOrder = { admin: 0, moderator: 1, member: 2 };
-    return roleOrder[a.role] - roleOrder[b.role];
-  });
+  useEffect(() => {
+    if (!parcheId) return;
+    (async () => {
+      try {
+        const ids = await parcheService.getMembers(parcheId as UUID);
+        setMemberIds(ids);
+        // Attempt to hydrate profiles
+        const profileMap: Record<string, MemberProfile> = {};
+        for (const id of ids) {
+          try {
+            const { data } = await apiClient.get<MemberProfile>(`/api/v1/usuarios/${id}/perfil`);
+            profileMap[id] = data;
+          } catch {
+            profileMap[id] = { id, name: `Usuario ${id.slice(0, 8)}`, email: "" };
+          }
+        }
+        setProfiles(profileMap);
+      } catch {
+        // silently fail
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [parcheId]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color="rgba(99, 102, 241, 1)" />
+      </View>
+    );
+  }
+
+  const sorted = [...memberIds].sort((a) => (a === userId ? -1 : 1));
 
   return (
     <>
-    <ScrollView style={styles.membersScroll} contentContainerStyle={styles.membersContent} showsVerticalScrollIndicator={false}>
-      <View style={styles.membersHeader}>
-        <Text style={styles.membersCount}>10 miembros</Text>
-        <View style={styles.membersSearchWrap}>
-          <Ionicons name="search" size={14} color="rgba(90, 90, 104, 1)" />
-          <TextInput
-            style={styles.membersSearchInput}
-            placeholder="Buscar miembro..."
-            placeholderTextColor="rgba(90, 90, 104, 1)"
-          />
-        </View>
-      </View>
-
-      {sorted.map((member, idx) => (
-        <Pressable
-          key={member.id}
-          style={({ pressed }) => [
-            styles.memberRow,
-            idx < sorted.length - 1 && styles.memberRowBorder,
-            pressed && { backgroundColor: "rgba(255, 255, 255, 0.04)" },
-          ]}
-          onPress={() => router.push(`/user/${member.id}`)}
-          onLongPress={() => setReportTarget({ name: member.name })}
-        >
-          <View style={styles.memberAvatarWrap}>
-            <View style={[styles.memberAvatar, { borderColor: ROLE_COLORS[member.role].replace("1)", "0.3)"), backgroundColor: ROLE_COLORS[member.role].replace("1)", "0.15)") }]}>
-              <Text style={[styles.memberAvatarText, { color: ROLE_COLORS[member.role] }]}>{member.initials}</Text>
-            </View>
-            <View style={[styles.memberStatusDot, { backgroundColor: STATUS_COLORS[member.status] }]} />
+      <ScrollView style={styles.membersScroll} contentContainerStyle={styles.membersContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.membersHeader}>
+          <Text style={styles.membersCount}>{memberIds.length} miembros</Text>
+          <View style={styles.membersSearchWrap}>
+            <Ionicons name="search" size={14} color="rgba(90, 90, 104, 1)" />
+            <TextInput
+              style={styles.membersSearchInput}
+              placeholder="Buscar miembro..."
+              placeholderTextColor="rgba(90, 90, 104, 1)"
+            />
           </View>
+        </View>
 
-          <View style={styles.memberInfo}>
-            <View style={styles.memberNameRow}>
-              <Text style={styles.memberName}>{member.name}</Text>
-              {member.role !== "member" && (
-                <View style={[styles.roleBadge, { borderColor: ROLE_COLORS[member.role].replace("1)", "0.3)"), backgroundColor: ROLE_COLORS[member.role].replace("1)", "0.12)") }]}>
-                  <Ionicons
-                    name={member.role === "admin" ? "shield-checkmark" : "hammer"}
-                    size={9}
-                    color={ROLE_COLORS[member.role]}
-                  />
-                  <Text style={[styles.roleBadgeText, { color: ROLE_COLORS[member.role] }]}>
-                    {member.role === "admin" ? "Admin" : "Mod"}
+        {sorted.map((id, idx) => {
+          const profile = profiles[id];
+          const name = profile?.name || `Usuario ${id.slice(0, 8)}`;
+          const initials = name.split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase();
+          const isSelf = id === userId;
+          return (
+            <Pressable
+              key={id}
+              style={({ pressed }) => [
+                styles.memberRow,
+                idx < sorted.length - 1 && styles.memberRowBorder,
+                pressed && { backgroundColor: "rgba(255, 255, 255, 0.04)" },
+              ]}
+              onPress={() => router.push(`/user/${id}`)}
+              onLongPress={() => setReportTarget({ name })}
+            >
+              <View style={styles.memberAvatarWrap}>
+                <View style={[styles.memberAvatar, { borderColor: isSelf ? "rgba(99, 102, 241, 0.3)" : "rgba(124, 106, 245, 0.21)", backgroundColor: isSelf ? "rgba(99, 102, 241, 0.15)" : "rgba(124, 106, 245, 0.13)" }]}>
+                  <Text style={[styles.memberAvatarText, { color: isSelf ? "rgba(99, 102, 241, 1)" : "rgba(124, 106, 245, 1)" }]}>
+                    {initials}
                   </Text>
                 </View>
-              )}
-            </View>
-            <Text style={styles.memberCareer}>{member.career}</Text>
-          </View>
-
-          <Ionicons name="chevron-forward" size={16} color="rgba(90, 90, 104, 0.4)" />
-        </Pressable>
-      ))}
-
-      <View style={{ height: 100 }} />
-    </ScrollView>
-    <ReportModal
-      visible={!!reportTarget}
-      onClose={() => setReportTarget(null)}
-      reportedUserName={reportTarget?.name ?? ""}
-      parcheName={parcheName}
-    />
+                <View style={[styles.memberStatusDot, { backgroundColor: isSelf ? "rgba(35, 165, 89, 1)" : "rgba(90, 90, 104, 0.6)" }]} />
+              </View>
+              <View style={styles.memberInfo}>
+                <View style={styles.memberNameRow}>
+                  <Text style={styles.memberName}>{name}</Text>
+                  {isSelf && (
+                    <View style={[styles.roleBadge, { borderColor: "rgba(99, 102, 241, 0.3)", backgroundColor: "rgba(99, 102, 241, 0.12)" }]}>
+                      <Ionicons name="person" size={9} color="rgba(99, 102, 241, 1)" />
+                      <Text style={[styles.roleBadgeText, { color: "rgba(99, 102, 241, 1)" }]}>Tú</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.memberCareer}>{profile?.email || ""}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="rgba(90, 90, 104, 0.4)" />
+            </Pressable>
+          );
+        })}
+        <View style={{ height: 100 }} />
+      </ScrollView>
+      <ReportModal
+        visible={!!reportTarget}
+        onClose={() => setReportTarget(null)}
+        reportedUserName={reportTarget?.name ?? ""}
+        parcheName={parcheName}
+      />
     </>
   );
 }
@@ -1060,7 +1072,45 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
+  menuBackdrop: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 200,
+    height: 600,
+  },
+  dropdownMenu: {
+    position: "absolute",
+    top: 32,
+    right: 0,
+    backgroundColor: "rgba(30, 30, 50, 0.97)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    minWidth: 160,
+    zIndex: 100,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  dropdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  dropdownDivider: {
+    height: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+  },
+  dropdownText: {
+    color: "rgba(236, 237, 248, 0.9)",
+    fontSize: 13,
+    fontWeight: "500",
+  },
   // ── Tab Row ──
   tabRow: {
     flexDirection: "row",
@@ -1092,7 +1142,6 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: "rgba(129, 140, 248, 1)",
   },
-
   // ── Placeholders ──
   placeholderView: {
     flex: 1,
@@ -1103,7 +1152,6 @@ const styles = StyleSheet.create({
     color: "rgba(90, 90, 104, 1)",
     fontSize: 14,
   },
-
   // ── Chat View ──
   chatRoot: {
     flex: 1,
@@ -1251,7 +1299,6 @@ const styles = StyleSheet.create({
   messageTimeMe: {
     textAlign: "right",
   },
-
   // Dynamic attachment styling
   imageMessageWrap: {
     borderRadius: 12,
@@ -1262,28 +1309,6 @@ const styles = StyleSheet.create({
     width: 200,
     height: 130,
     borderRadius: 8,
-  },
-  fileMessageWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 4,
-  },
-  fileMessageInfo: {
-    flexDirection: "column",
-  },
-  fileMessageName: {
-    color: "rgba(255, 255, 255, 0.95)",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  fileMessageNameMe: {
-    color: "white",
-  },
-  fileMessageSize: {
-    color: "rgba(255, 255, 255, 0.5)",
-    fontSize: 10,
-    marginTop: 2,
   },
   audioMessageWrap: {
     flexDirection: "row",
@@ -1314,7 +1339,6 @@ const styles = StyleSheet.create({
   audioDurationTextMe: {
     color: "white",
   },
-
   // Recording Toolbar Styles
   chatCancelBtn: {
     width: 40,
@@ -1342,7 +1366,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
   },
-
   // ── Games View ──
   gamesScroll: {
     flex: 1,
@@ -1360,46 +1383,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     alignSelf: "center",
     marginVertical: 4,
-  },
-  gameCardLienzo: {
-    height: 160,
-    borderRadius: 22,
-  },
-  gameCardInnerBorderLienzo: {
-    flex: 1,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "rgba(129, 140, 248, 0.2)",
-    padding: 16,
-    justifyContent: "space-between",
-  },
-  gameIconRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-  },
-  colorDotsWrap: {
-    flexDirection: "row",
-    gap: 6,
-  },
-  colorDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  gameInfo: {
-    gap: 2,
-  },
-  gameTitle: {
-    color: "white",
-    fontSize: 22,
-    fontWeight: "700",
-    letterSpacing: -0.55,
-  },
-  gameDesc: {
-    color: "rgba(163, 179, 255, 0.8)",
-    fontSize: 12,
-    fontWeight: "500",
   },
   gameCardParques: {
     height: 160,
@@ -1447,244 +1430,213 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  gamePaletteIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: "rgba(99, 102, 241, 0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(99, 102, 241, 0.3)",
-    justifyContent: "center",
-    alignItems: "center",
+  moreGamesText: {
+    color: "rgba(90, 90, 104, 1)",
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 8,
   },
-  parquesBoardSmall: {
-    width: 66,
-    height: 66,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    overflow: "hidden",
-  },
-  // Lienzo full view
   gameFullView: {
     flex: 1,
-    backgroundColor: "rgba(9, 17, 31, 1)",
   },
-  lienzoToolbar: {
+  // Parqués sub-view
+  parquesHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.05)",
-    backgroundColor: "rgba(255, 255, 255, 0.02)",
+    borderBottomColor: "rgba(255, 255, 255, 0.06)",
+  },
+  parquesBackBtn: {
+    width: 32,
+    height: 32,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+  },
+  parquesHeaderTitle: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  // Lienzo toolbar
+  lienzoToolbar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.06)",
   },
   lienzoToolLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
-  lienzoToolRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
   lienzoToolBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    backgroundColor: "rgba(255, 255, 255, 0.07)",
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
     justifyContent: "center",
     alignItems: "center",
   },
   lienzoToolBtnActive: {
-    borderColor: "rgba(99, 102, 241, 0.5)",
     backgroundColor: "rgba(99, 102, 241, 0.2)",
   },
   lienzoToolIcon: {
-    fontSize: 14,
+    fontSize: 16,
   },
   lienzoToolLabel: {
     color: "rgba(90, 90, 104, 1)",
     fontSize: 11,
-    fontWeight: "500",
+    marginRight: 8,
   },
   lienzoToolLabelActive: {
     color: "rgba(129, 140, 248, 1)",
+  },
+  lienzoToolRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   connectionDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginRight: 4,
   },
   lienzoClrBtn: {
-    paddingVertical: 3,
     paddingHorizontal: 10,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
   },
   lienzoBackText: {
-    color: "rgba(255, 255, 255, 0.6)",
-    fontSize: 11,
-    fontWeight: "500",
+    color: "rgba(255, 255, 255, 0.7)",
+    fontSize: 12,
   },
   lienzoClearBtn: {
-    paddingVertical: 3,
     paddingHorizontal: 10,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: "rgba(248, 113, 113, 0.4)",
-    backgroundColor: "rgba(248, 113, 113, 0.1)",
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: "rgba(248, 113, 113, 0.15)",
   },
   lienzoClearText: {
     color: "rgba(248, 113, 113, 1)",
     fontSize: 11,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   lienzoPalette: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
     paddingVertical: 6,
+    gap: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.04)",
-    backgroundColor: "rgba(255, 255, 255, 0.01)",
-    gap: 6,
+    borderBottomColor: "rgba(255, 255, 255, 0.06)",
   },
   lienzoPaletteColor: {
     width: 22,
     height: 22,
     borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
   },
   lienzoPaletteColorActive: {
-    borderWidth: 3,
-    borderColor: "rgba(255, 255, 255, 0.8)",
+    borderWidth: 2,
+    borderColor: "white",
+    transform: [{ scale: 1.2 }],
   },
   lienzoPaletteSep: {
-    flex: 1,
+    width: 1,
+    height: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
   },
   lienzoBrushSize: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
   },
   lienzoCanvas: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(15, 20, 40, 1)",
   },
   lienzoCanvasHint: {
-    color: "rgba(255, 255, 255, 0.08)",
+    color: "rgba(90, 90, 104, 1)",
     fontSize: 14,
-    fontWeight: "500",
     textAlign: "center",
+    paddingTop: 60,
   },
-  // Parqués full view
-  parquesHeader: {
+  gameInfo: {
+    gap: 2,
+  },
+  gameTitle: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "700",
+    letterSpacing: -0.55,
+  },
+  gameDesc: {
+    color: "rgba(163, 179, 255, 0.8)",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  // ── Panel Overlay ──
+  panelOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(11, 13, 24, 1)",
+    zIndex: 50,
+  },
+  panelContainer: {
+    flex: 1,
+  },
+  panelHeader: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 12,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255, 255, 255, 0.06)",
-    gap: 10,
   },
-  parquesBackBtn: {
+  panelBackBtn: {
     width: 32,
     height: 32,
+    justifyContent: "center",
+    alignItems: "center",
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
   },
-  parquesHeaderTitle: {
-    color: "rgba(255, 255, 255, 1)",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  parquesBoardFull: {
-    margin: 20,
-    borderRadius: 20,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.07)",
-    backgroundColor: "rgba(14, 17, 35, 1)",
-  },
-  parquesQuadRow: {
-    flexDirection: "row",
-  },
-  parquesQuad: {
+  panelTitle: {
     flex: 1,
-    height: 140,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-  },
-  parquesQuadEmoji: {
-    fontSize: 32,
-  },
-  parquesQuadLabel: {
-    color: "rgba(255, 255, 255, 0.7)",
-    fontSize: 13,
+    color: "white",
+    fontSize: 16,
     fontWeight: "600",
   },
-  parquesCenter: {
-    width: 80,
-    height: 140,
+  panelCloseBtn: {
+    width: 32,
+    height: 32,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
   },
-  parquesCenterBottom: {
-    width: 80,
-    height: 140,
-    backgroundColor: "rgba(255, 255, 255, 0.02)",
-  },
-  parquesCenterEmoji: {
-    fontSize: 36,
-  },
-  parquesComingSoon: {
-    color: "rgba(90, 90, 104, 1)",
-    fontSize: 11,
-    textAlign: "center",
-    marginTop: 16,
-    paddingHorizontal: 24,
-  },
-  moreGamesText: {
-    color: "rgba(90, 90, 104, 1)",
-    fontSize: 10,
-    textAlign: "center",
-    marginTop: 8,
-  },
-
   // ── Members View ──
   membersScroll: {
     flex: 1,
   },
   membersContent: {
-    paddingBottom: 100,
+    padding: 16,
   },
   membersHeader: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
-    gap: 10,
+    gap: 12,
+    marginBottom: 16,
   },
   membersCount: {
-    color: "rgba(90, 90, 104, 1)",
-    fontSize: 10,
-    fontWeight: "500",
-    letterSpacing: 1,
-    textTransform: "uppercase",
+    color: "white",
+    fontSize: 18,
+    fontWeight: "700",
   },
   membersSearchWrap: {
     flexDirection: "row",
@@ -1694,7 +1646,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.08)",
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    height: 38,
     gap: 8,
   },
   membersSearchInput: {
@@ -1706,256 +1658,168 @@ const styles = StyleSheet.create({
   memberRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     gap: 12,
   },
   memberRowBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.03)",
+    borderBottomColor: "rgba(255, 255, 255, 0.04)",
   },
   memberAvatarWrap: {
     position: "relative",
   },
   memberAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1.5,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
   },
   memberAvatarText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "700",
   },
   memberStatusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     position: "absolute",
-    bottom: -1,
+    bottom: 1,
     right: -1,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
     borderWidth: 2,
     borderColor: "rgba(11, 13, 24, 1)",
   },
   memberInfo: {
     flex: 1,
+    justifyContent: "center",
+    gap: 4,
   },
   memberNameRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
   },
   memberName: {
-    color: "rgba(236, 237, 248, 1)",
-    fontSize: 13,
+    color: "white",
+    fontSize: 14,
     fontWeight: "600",
   },
   roleBadge: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
     gap: 3,
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 1,
+    paddingHorizontal: 6,
   },
   roleBadgeText: {
-    fontSize: 8,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.3,
+    fontSize: 9,
+    fontWeight: "600",
   },
   memberCareer: {
-    color: "rgba(143, 132, 224, 0.6)",
+    color: "rgba(90, 90, 104, 1)",
     fontSize: 11,
-    marginTop: 2,
   },
-
   // ── Settings View ──
   settingsScroll: {
     flex: 1,
   },
   settingsContent: {
-    paddingBottom: 100,
+    padding: 16,
+    gap: 20,
   },
   settingsServerCard: {
     flexDirection: "row",
     alignItems: "center",
-    margin: 16,
-    padding: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.06)",
-    borderRadius: 16,
     gap: 14,
+    marginBottom: 4,
   },
   settingsServerIcon: {
     width: 48,
     height: 48,
-    borderRadius: 14,
-    backgroundColor: "rgba(242, 63, 67, 0.12)",
+    borderRadius: 16,
+    backgroundColor: "rgba(242, 63, 67, 0.13)",
     borderWidth: 1,
-    borderColor: "rgba(242, 63, 67, 0.2)",
+    borderColor: "rgba(242, 63, 67, 0.21)",
     justifyContent: "center",
     alignItems: "center",
   },
   settingsServerInfo: {
     flex: 1,
+    gap: 2,
   },
   settingsServerName: {
-    color: "rgba(236, 237, 248, 1)",
-    fontSize: 15,
+    color: "white",
+    fontSize: 16,
     fontWeight: "700",
   },
   settingsServerDesc: {
-    color: "rgba(143, 132, 224, 0.6)",
+    color: "rgba(90, 90, 104, 1)",
     fontSize: 11,
-    marginTop: 2,
   },
   settingsSectionLabel: {
     color: "rgba(90, 90, 104, 1)",
     fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-    paddingHorizontal: 20,
-    marginTop: 20,
-    marginBottom: 8,
+    fontWeight: "500",
+    letterSpacing: 1,
+    marginBottom: -12,
   },
   settingsGroup: {
-    marginHorizontal: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.02)",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.05)",
-    borderRadius: 16,
+    borderColor: "rgba(255, 255, 255, 0.06)",
+    borderRadius: 14,
     overflow: "hidden",
   },
   settingsItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.04)",
   },
   settingsItemIcon: {
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
     borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
   },
   settingsItemContent: {
     flex: 1,
+    justifyContent: "center",
+    gap: 2,
   },
   settingsItemLabel: {
-    color: "rgba(236, 237, 248, 1)",
+    color: "rgba(236, 237, 248, 0.9)",
     fontSize: 13,
     fontWeight: "500",
   },
   settingsItemValue: {
     color: "rgba(90, 90, 104, 1)",
     fontSize: 11,
-    marginTop: 1,
   },
   toggleTrack: {
-    width: 44,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "rgba(90, 90, 104, 0.3)",
+    width: 40,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(90, 90, 104, 0.4)",
     justifyContent: "center",
-    paddingHorizontal: 3,
+    paddingHorizontal: 2,
   },
   toggleTrackActive: {
-    backgroundColor: "rgba(99, 102, 241, 1)",
+    backgroundColor: "rgba(99, 102, 241, 0.6)",
   },
   toggleThumb: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: "white",
-    alignSelf: "flex-start",
+    backgroundColor: "rgba(220, 220, 230, 1)",
   },
   toggleThumbActive: {
     alignSelf: "flex-end",
-  },
-
-  // ── Dropdown Menu ──
-  menuBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 99,
-  },
-  dropdownMenu: {
-    position: "absolute",
-    top: 44,
-    right: 0,
-    width: 180,
-    backgroundColor: "rgba(22, 24, 40, 0.97)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 14,
-    paddingVertical: 6,
-    zIndex: 100,
-    shadowColor: "rgba(0, 0, 0, 0.5)",
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 1,
-    elevation: 12,
-  },
-  dropdownItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    gap: 10,
-  },
-  dropdownText: {
-    color: "rgba(236, 237, 248, 1)",
-    fontSize: 13,
-    fontWeight: "500",
-  },
-  dropdownDivider: {
-    height: 1,
-    marginHorizontal: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-  },
-
-  // ── Panel Overlay ──
-  panelOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 50,
-  },
-  panelContainer: {
-    flex: 1,
-  },
-  panelHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.06)",
-  },
-  panelBackBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  panelTitle: {
-    flex: 1,
-    color: "rgba(236, 237, 248, 1)",
-    fontSize: 16,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  panelCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
   },
 });

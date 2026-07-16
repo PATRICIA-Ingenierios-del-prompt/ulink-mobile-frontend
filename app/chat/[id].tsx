@@ -17,7 +17,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { communicationService, type ChatMessage } from "@/services/communicationService";
 import { useAuth } from "@/hooks/useAuth";
-import { getChatSocket, type ChatMessage as WsChatMessage } from "@/services/chatSocket";
+import { ChatSocket, type ChatMessage as WsChatMessage } from "@/services/chatSocket";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Audio } from "expo-av";
@@ -48,6 +48,7 @@ export default function ChatScreen() {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const socketRef = useRef<ChatSocket | null>(null);
 
   const chatId = id as string;
 
@@ -55,30 +56,44 @@ export default function ChatScreen() {
     loadMessages();
   }, [chatId]);
 
-  // Connect to WebSocket and subscribe to real-time messages
+  // Connect to WebSocket and subscribe to real-time messages.
+  // IMPORTANT: subscribeToParche must be called from inside onConnect,
+  // not immediately after activate() — the STOMP handshake is async and
+  // subscribeToParche silently returns a no-op if the socket isn't
+  // connected yet, which is what caused the "sin conexión" error.
+  //
+  // We create a fresh ChatSocket instance per mount (not the singleton) so
+  // that the onConnect callback is always registered and the screen has
+  // full ownership of the socket lifecycle.
   useEffect(() => {
     if (!chatId || !userId) return;
-    const socket = getChatSocket();
 
-    socket.activate();
+    let unsubParche: (() => void) | null = null;
 
-    const unsub = socket.subscribeToParche(chatId, {
-      onMessage: (msg: WsChatMessage) => {
-        const mapped: Message = {
-          id: msg.id,
-          sender: msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario"),
-          text: msg.content,
-          time: new Date(msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          isMe: msg.senderId === userId,
-          image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
-        };
-        setMessages((prev) => [...prev, mapped]);
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    const socket = new ChatSocket({
+      onConnect: () => {
+        unsubParche = socket.subscribeToParche(chatId, {
+          onMessage: (msg: WsChatMessage) => {
+            const mapped: Message = {
+              id: msg.id,
+              sender: msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario"),
+              text: msg.content,
+              time: new Date(msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isMe: msg.senderId === userId,
+              image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
+            };
+            setMessages((prev) => [...prev, mapped]);
+            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+          },
+        });
       },
     });
 
+    socket.activate();
+    socketRef.current = socket;
+
     return () => {
-      unsub();
+      unsubParche?.();
       socket.deactivate();
     };
   }, [chatId, userId]);
@@ -90,7 +105,10 @@ export default function ChatScreen() {
         ? await communicationService.getMessagesBetween(userId, chatId, 0, 50)
         : await communicationService.getMessages(chatId, 0, 50);
         
-      const mapped: Message[] = (data.content || []).map((m) => ({
+      // The API returns messages in descending order (newest first).
+      // Reverse to chronological order so they render oldest→newest,
+      // matching the web frontend behaviour.
+      const mapped: Message[] = [...(data.content || [])].reverse().map((m) => ({
         id: m.id,
         sender: m.senderName || "Usuario",
         text: m.content,
@@ -116,8 +134,8 @@ export default function ChatScreen() {
 
   const handleSend = useCallback(() => {
     if (text.trim().length === 0) return;
-    const socket = getChatSocket();
-    if (socket.connected) {
+    const socket = socketRef.current;
+    if (socket?.connected) {
       socket.sendMessage(chatId, text.trim());
       setText("");
     } else {

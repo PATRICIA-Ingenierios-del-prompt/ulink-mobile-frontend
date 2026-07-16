@@ -52,6 +52,11 @@ export const parcheService = {
     return data;
   },
 
+  async getMembers(parcheId: UUID): Promise<string[]> {
+    const { data } = await apiClient.get<string[]>(`${BASE}/${parcheId}/members`);
+    return data;
+  },
+
   async getEvents(parcheId: UUID): Promise<UUID[]> {
     const { data } = await apiClient.get<UUID[]>(`${BASE}/${parcheId}/events`);
     return data;
