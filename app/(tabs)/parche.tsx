@@ -10,7 +10,7 @@ import { useBoard } from "@/hooks/useBoard";
 import { useAuth } from "@/hooks/useAuth";
 import { ReportModal } from "@/components/ReportModal";
 import { communicationService } from "@/services/communicationService";
-import { getChatSocket } from "@/services/chatSocket";
+import { getChatSocket, destroyChatSocket } from "@/services/chatSocket";
 import type { ParcheResponse, ParcheCategory, UUID } from "@/services/types";
 import type { Stroke, Point } from "@/services/boardSocket";
 
@@ -56,6 +56,87 @@ export default function ParcheScreen() {
   const parcheTitle = parche?.name ?? "Parche";
   const parcheMembers = parche?.memberCount != null ? `${parche.memberCount} miembros` : "";
   const parcheEmoji = parche?.category ? CATEGORY_EMOJI[parche.category] : "📐";
+  // The chat/voice channel id is provisioned separately from the parche id.
+  // Always use parche.communication.chatId for REST history + STOMP destinations.
+  const chatId = parche?.communication?.chatId ?? null;
+
+  // ── Socket: one instance for this parche screen, activated once ──
+  const socketRef = useRef<import("@/services/chatSocket").ChatSocket | null>(null);
+  const [rtMessages, setRtMessages] = useState<Array<{
+    id: string; sender: string; initials: string; text: string;
+    time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string;
+  }>>([]);
+
+  const { userId } = useAuth();
+
+  useEffect(() => {
+    // Create and activate a persistent socket for this screen.
+    destroyChatSocket();
+    const socket = getChatSocket({ onConnect: () => {} });
+    socket.activate();
+    socketRef.current = socket;
+    return () => {
+      destroyChatSocket();
+      socketRef.current = null;
+    };
+  }, []); // runs once on mount
+
+  // ── Subscribe to chat channel whenever chatId becomes available ──
+  useEffect(() => {
+    if (!chatId || !socketRef.current) return;
+    const socket = socketRef.current;
+
+    const doSubscribe = () => {
+      return socket.subscribeToParche(chatId, {
+        onMessage: (msg) => {
+          const senderName = msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario");
+          const initials = senderName.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+          setRtMessages((prev) => [
+            ...prev,
+            {
+              id: msg.id,
+              sender: senderName,
+              initials,
+              text: msg.content,
+              time: new Date(msg.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              isMe: msg.senderId === userId,
+              image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
+            },
+          ]);
+        },
+      });
+    };
+
+    let unsub: () => void = () => {};
+
+    if (socket.connected) {
+      unsub = doSubscribe();
+    } else {
+      // Poll until connected (the socket was just activated; typically <1s).
+      const interval = setInterval(() => {
+        if (socket.connected) {
+          clearInterval(interval);
+          unsub = doSubscribe();
+        }
+      }, 100);
+      return () => {
+        clearInterval(interval);
+        unsub();
+      };
+    }
+
+    return () => unsub();
+  }, [chatId, userId]);
+
+  const sendChatMessage = useCallback((content: string) => {
+    if (!chatId || !socketRef.current) return;
+    if (!socketRef.current.connected) {
+      // Socket still connecting — silently drop; the user can try again in <1s.
+      console.warn("[chat] sendMessage skipped: STOMP not yet connected");
+      return;
+    }
+    socketRef.current.sendMessage(chatId, content, "TEXT");
+  }, [chatId]);
 
   return (
     <SafeAreaView style={styles.root}>
@@ -142,7 +223,7 @@ export default function ParcheScreen() {
       {activeTab === "juegos" ? (
         <GamesView parcheId={parcheId} />
       ) : (
-        <ChatView activeTab={activeTab} parcheId={parcheId} />
+        <ChatView activeTab={activeTab} chatId={chatId} loadingParche={loadingParche} rtMessages={rtMessages} onSend={sendChatMessage} />
       )}
 
       {/* ── Dropdown Menu (full-screen backdrop) ── */}
@@ -192,11 +273,29 @@ export default function ParcheScreen() {
   );
 }
 
-function ChatView({ activeTab = "anuncios", parcheId }: { activeTab?: string; parcheId?: string }) {
+function ChatView({
+  activeTab = "anuncios",
+  chatId,
+  loadingParche,
+  rtMessages,
+  onSend: sendViaSocket,
+}: {
+  activeTab?: string;
+  chatId?: string | null;
+  loadingParche?: boolean;
+  rtMessages: Array<{ id: string; sender: string; initials: string; text: string; time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string }>;
+  onSend: (content: string) => void;
+}) {
   const { userId } = useAuth();
   const [text, setText] = useState("");
-  const [messages, setMessages] = useState<Array<{ id: string; sender: string; initials: string; text: string; time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string }>>([
-  ]);
+  // historicalMessages: loaded once from REST when chatId is available.
+  // rtMessages: real-time messages streamed from the parent's socket — appended live.
+  // We merge them and deduplicate by id so the real-time echo of the sender's own
+  // message (which also arrives via /topic/chat/{chatId}) doesn't appear twice.
+  const [historicalMessages, setHistoricalMessages] = useState<Array<{
+    id: string; sender: string; initials: string; text: string;
+    time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string;
+  }>>([]);
   const [loadingMessages, setLoadingMessages] = useState(true);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -205,18 +304,21 @@ function ChatView({ activeTab = "anuncios", parcheId }: { activeTab?: string; pa
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── Load message history from the API ──
+  // ── Load message history from the REST API ──
   useEffect(() => {
-    if (!parcheId) {
-      setLoadingMessages(false);
+    if (!chatId) {
+      if (!loadingParche) setLoadingMessages(false);
       return;
     }
+    setHistoricalMessages([]);
+    setLoadingMessages(true);
     let cancelled = false;
     (async () => {
       try {
-        const page = await communicationService.getMessages(parcheId, 0, 50);
+        const page = await communicationService.getMessages(chatId, 0, 50);
         if (cancelled) return;
-        const mapped = (page.content || []).map((m) => {
+        // Backend returns newest-first for page 0; reverse to chronological order.
+        const mapped = [...(page.content || [])].reverse().map((m) => {
           const senderName = m.senderName || "Usuario";
           const initials = senderName
             .split(" ")
@@ -235,50 +337,29 @@ function ChatView({ activeTab = "anuncios", parcheId }: { activeTab?: string; pa
             audioDuration: m.type === "AUDIO" && m.duration ? formatAudioDuration(m.duration) : undefined,
           };
         });
-        setMessages(mapped);
+        setHistoricalMessages(mapped);
       } catch {
-        // Failed to load — keep empty
+        // Failed to load — show empty state
       } finally {
         if (!cancelled) setLoadingMessages(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [parcheId, userId]);
+  }, [chatId, userId, loadingParche]);
 
-  // ── Connect to WebSocket for real-time messages ──
-  useEffect(() => {
-    if (!parcheId || !userId) return;
-    const socket = getChatSocket();
-    socket.activate();
+  // Merge history + real-time, deduplicating by id.
+  const historicalIds = useMemo(() => new Set(historicalMessages.map((m) => m.id)), [historicalMessages]);
+  const messages = useMemo(
+    () => [...historicalMessages, ...rtMessages.filter((m) => !historicalIds.has(m.id))],
+    [historicalMessages, rtMessages, historicalIds],
+  );
 
-    const unsub = socket.subscribeToParche(parcheId, {
-      onMessage: (msg) => {
-        const senderName = msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario");
-        const initials = senderName
-          .split(" ")
-          .map((w) => w[0])
-          .slice(0, 2)
-          .join("")
-          .toUpperCase();
-        const mapped = {
-          id: msg.id,
-          sender: senderName,
-          initials,
-          text: msg.content,
-          time: new Date(msg.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          isMe: msg.senderId === userId,
-          image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
-        };
-        setMessages((prev) => [...prev, mapped]);
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-      },
-    });
-
-    return () => {
-      unsub();
-      socket.deactivate();
-    };
-  }, [parcheId, userId]);
+  // Local-only UI messages (voice notes, file attachments, camera — not yet wired to backend).
+  const [localMessages, setLocalMessages] = useState<Array<{
+    id: string; sender: string; initials: string; text: string;
+    time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string;
+  }>>([]);
+  const allMessages = useMemo(() => [...messages, ...localMessages], [messages, localMessages]);
 
   const formatAudioDuration = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -288,27 +369,8 @@ function ChatView({ activeTab = "anuncios", parcheId }: { activeTab?: string; pa
 
   const handleSend = () => {
     if (text.trim().length === 0) return;
-    // Send via WebSocket if parcheId available
-    if (parcheId) {
-      try {
-        const socket = getChatSocket();
-        socket.sendMessage(parcheId, text.trim(), "TEXT");
-      } catch {
-        // Fallback: add optimistic message
-      }
-    }
-    // Optimistic local add
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Math.random().toString(),
-        sender: "Tú",
-        initials: "TÚ",
-        text: text.trim(),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isMe: true,
-      }
-    ]);
+    // Send via the parent's socket reference.
+    sendViaSocket(text.trim());
     setText("");
     setTimeout(() => {
       scrollRef.current?.scrollToEnd({ animated: true });
@@ -340,7 +402,7 @@ function ChatView({ activeTab = "anuncios", parcheId }: { activeTab?: string; pa
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         isMe: true,
       };
-      setMessages((prev) => [...prev, newMsg]);
+      setLocalMessages((prev) => [...prev, newMsg]);
       setTimeout(() => {
         scrollRef.current?.scrollToEnd({ animated: true });
       }, 100);
@@ -364,7 +426,7 @@ function ChatView({ activeTab = "anuncios", parcheId }: { activeTab?: string; pa
               time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isMe: true,
             };
-            setMessages((prev) => [...prev, newMsg]);
+            setLocalMessages((prev) => [...prev, newMsg]);
           }
         },
         {
@@ -379,7 +441,7 @@ function ChatView({ activeTab = "anuncios", parcheId }: { activeTab?: string; pa
               time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isMe: true,
             };
-            setMessages((prev) => [...prev, newMsg]);
+            setLocalMessages((prev) => [...prev, newMsg]);
           }
         },
         {
@@ -407,7 +469,7 @@ function ChatView({ activeTab = "anuncios", parcheId }: { activeTab?: string; pa
               time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isMe: true,
             };
-            setMessages((prev) => [...prev, newMsg]);
+            setLocalMessages((prev) => [...prev, newMsg]);
           }
         },
         {
@@ -422,7 +484,7 @@ function ChatView({ activeTab = "anuncios", parcheId }: { activeTab?: string; pa
               time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isMe: true,
             };
-            setMessages((prev) => [...prev, newMsg]);
+            setLocalMessages((prev) => [...prev, newMsg]);
           }
         },
         {
@@ -448,18 +510,18 @@ function ChatView({ activeTab = "anuncios", parcheId }: { activeTab?: string; pa
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
         >
           {loadingMessages ? (
-            <View style={styles.chatLoadingWrap}>
+            <View key="loading" style={styles.chatLoadingWrap}>
               <ActivityIndicator size="large" color="rgba(99, 102, 241, 1)" />
               <Text style={styles.chatLoadingText}>Cargando mensajes…</Text>
             </View>
-          ) : messages.length === 0 ? (
-            <View style={styles.chatLoadingWrap}>
+          ) : allMessages.length === 0 ? (
+            <View key="empty" style={styles.chatLoadingWrap}>
               <Ionicons name="chatbubbles-outline" size={36} color="rgba(143, 132, 224, 0.3)" />
               <Text style={styles.chatLoadingText}>Aún no hay mensajes en #{activeTab}</Text>
               <Text style={[styles.chatLoadingText, { fontSize: 12 }]}>¡Sé el primero en escribir!</Text>
             </View>
           ) : (
-            messages.map((msg) => (
+            allMessages.map((msg) => (
               <View key={msg.id} style={[styles.messageRow, msg.isMe && styles.messageRowMe]}>
                 {!msg.isMe && (
                   <View style={styles.messageAvatarBox}>

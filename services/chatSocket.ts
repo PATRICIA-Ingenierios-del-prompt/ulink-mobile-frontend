@@ -134,6 +134,10 @@ export class ChatSocket {
   }
 
   sendMessage(chatId: string, content: string, type = "TEXT"): void {
+    if (!this.client.connected) {
+      console.warn("[chatSocket] sendMessage ignored: STOMP not connected");
+      return;
+    }
     this.client.publish({
       destination: `/app/chat.send/${chatId}`,
       body: JSON.stringify({ content, type }),
