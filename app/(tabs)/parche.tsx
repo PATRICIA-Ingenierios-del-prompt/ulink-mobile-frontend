@@ -4,6 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Path } from "react-native-svg";
+import * as Crypto from "expo-crypto";
 import { ParquesBoard } from "../../components/parques/ParquesBoard";
 import { parcheService } from "@/services/parcheService";
 import { useBoard } from "@/hooks/useBoard";
@@ -531,7 +532,7 @@ function GamesView({ parcheId }: { parcheId?: string }) {
           const color = isEraser ? "rgba(15, 20, 40, 1)" : activeColorRef.current;
           const width = isEraser ? 22 : 4;
           const stroke: Stroke = {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            id: Crypto.randomUUID(),
             color,
             width,
             points: pts,
