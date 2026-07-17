@@ -112,6 +112,27 @@ export default function EventDetailScreen() {
             <Ionicons name="location-outline" size={16} color="rgba(255, 255, 255, 0.5)" />
             <Text style={styles.locationText}>{event.locationName || 'Sin ubicación específica'}</Text>
           </View>
+
+          {event.status === 'STARTED' && (
+            <Pressable
+              style={styles.liveBtn}
+              onPress={() =>
+                router.push({
+                  pathname: '/location',
+                  params: {
+                    eventId: event.eventId,
+                    name: event.title,
+                    ...(event.latitude != null && event.longitude != null
+                      ? { lat: String(event.latitude), lng: String(event.longitude) }
+                      : {}),
+                  },
+                })
+              }
+            >
+              <Ionicons name="radio" size={16} color="#7FE7C4" />
+              <Text style={styles.liveBtnText}>Ver ubicación en vivo</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* Stats */}
@@ -195,6 +216,20 @@ const styles = StyleSheet.create({
   title: { color: 'white', fontSize: 26, fontWeight: '700', fontFamily: 'Inter', marginBottom: 8 },
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   locationText: { color: 'rgba(255, 255, 255, 0.5)', fontSize: 14, fontFamily: 'Inter' },
+  liveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    marginTop: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(127, 231, 196, 0.35)',
+    backgroundColor: 'rgba(127, 231, 196, 0.12)',
+  },
+  liveBtnText: { color: '#7FE7C4', fontSize: 13, fontWeight: '600', fontFamily: 'Inter' },
   
   statsRow: { flexDirection: 'row', paddingHorizontal: 24, gap: 16, marginBottom: 32 },
   statBox: {
