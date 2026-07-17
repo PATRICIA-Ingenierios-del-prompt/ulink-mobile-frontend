@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -62,13 +62,33 @@ export default function LocationScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const { userId: myId } = useAuth();
+  const params = useLocalSearchParams<{
+    eventId?: string;
+    name?: string;
+    lat?: string;
+    lng?: string;
+  }>();
   const [enrolled, setEnrolled] = useState<EventCard[]>([]);
   const [loading, setLoading] = useState(true);
+  // When navigated with an eventId param (e.g. from an event's detail screen),
+  // jump straight into the live map for that event.
   const [selectedEvent, setSelectedEvent] = useState<{
     eventId: string;
     name: string;
     center: { latitude: number; longitude: number } | null;
-  } | null>(null);
+  } | null>(() => {
+    if (!params.eventId) return null;
+    const lat = params.lat != null ? Number(params.lat) : NaN;
+    const lng = params.lng != null ? Number(params.lng) : NaN;
+    return {
+      eventId: params.eventId,
+      name: params.name ?? "Ubicación en vivo",
+      center:
+        !Number.isNaN(lat) && !Number.isNaN(lng)
+          ? { latitude: lat, longitude: lng }
+          : null,
+    };
+  });
 
   useEffect(() => {
     let alive = true;
@@ -271,10 +291,9 @@ function LiveMap({
         const n = new Map(prev);
         n.set(p.userId, {
           userId: p.userId,
-          username: p.username ?? "",
           latitude: p.latitude,
           longitude: p.longitude,
-          timestamp: p.timestamp,
+          recordedAt: p.recordedAt,
         });
         return n;
       }),
@@ -322,16 +341,7 @@ function LiveMap({
         .liveSnapshot(eventId)
         .then((rows) => {
           if (!alive) return;
-          rows.forEach((r) =>
-            upsert({
-              userId: r.userId,
-              username: r.username,
-              latitude: r.latitude,
-              longitude: r.longitude,
-              timestamp: r.timestamp,
-              type: "POSITION",
-            })
-          );
+          rows.forEach((r) => upsert(r));
         })
         .catch(() => {});
 
@@ -344,6 +354,7 @@ function LiveMap({
         },
         onDisconnect: () => setSocketState("down"),
         onGeoBroadcast: upsert,
+        onGeoSnapshot: (snap) => snap.positions.forEach(upsert),
       });
       sock = s;
       socketRef.current = s;
@@ -393,7 +404,7 @@ function LiveMap({
   }, [eventId]);
 
   const participantList = [...positions.values()].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
   );
 
   const markerColors = [
@@ -469,7 +480,7 @@ function LiveMap({
           <Marker
             key={p.userId}
             coordinate={{ latitude: p.latitude, longitude: p.longitude }}
-            title={p.username || p.userId}
+            title={p.userId === myId ? "Tú" : p.userId}
           >
             <View
               style={[
@@ -478,7 +489,7 @@ function LiveMap({
               ]}
             >
               <Text style={styles.markerText}>
-                {(p.username ?? p.userId).charAt(0).toUpperCase()}
+                {(p.userId === myId ? "T" : p.userId).charAt(0).toUpperCase()}
               </Text>
             </View>
           </Marker>
@@ -505,7 +516,7 @@ function LiveMap({
           )}
           <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
             {participantList.map((p) => {
-              const tc = timeAgo(p.timestamp);
+              const tc = timeAgo(p.recordedAt);
               const isMe = p.userId === myId;
               return (
                 <View key={p.userId} style={styles.participantRow}>
@@ -517,7 +528,7 @@ function LiveMap({
                   />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.participantName} numberOfLines={1}>
-                      {isMe ? "Tú" : p.username || p.userId.slice(0, 8)}
+                      {isMe ? "Tú" : p.userId.slice(0, 8)}
                     </Text>
                     <Text style={styles.participantTime}>Activo · {tc}</Text>
                   </View>

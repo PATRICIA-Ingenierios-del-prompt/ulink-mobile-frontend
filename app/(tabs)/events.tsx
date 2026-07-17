@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,8 +6,10 @@ import {
   ScrollView,
   Pressable,
   Dimensions,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import MapView, { Marker } from "react-native-maps";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -15,6 +17,9 @@ import { eventService, type EventMapResponse } from "@/services/eventService";
 import { UserAvatar } from "@/components/UserAvatar";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+// Campus center (Escuela Colombiana de Ingeniería) used when an event has no coords.
+const ECI_CENTER = { latitude: 4.601, longitude: -74.066 };
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -64,73 +69,17 @@ const CATEGORY_EMOJI: Record<string, string> = {
   SPORTS: "🏃",
 };
 
-interface MapPin {
-  id: string;
-  emoji: string;
-  label: string;
-  color: string;
-  borderColor: string;
-  bgColor: string;
-  top: number;
-  left: number;
-}
-
-// Campus map "buildings" as abstract rectangles
-const BUILDINGS = [
-  { top: 40, left: 15, w: 90, h: 50, opacity: 0.07 },
-  { top: 40, left: 125, w: 60, h: 35, opacity: 0.06 },
-  { top: 40, left: 205, w: 110, h: 45, opacity: 0.08 },
-  { top: 110, left: 15, w: 70, h: 60, opacity: 0.06 },
-  { top: 110, left: 105, w: 85, h: 55, opacity: 0.07 },
-  { top: 110, left: 210, w: 100, h: 40, opacity: 0.05 },
-  { top: 190, left: 15, w: 55, h: 50, opacity: 0.07 },
-  { top: 190, left: 90, w: 95, h: 65, opacity: 0.06 },
-  { top: 190, left: 205, w: 105, h: 55, opacity: 0.08 },
-  { top: 270, left: 15, w: 75, h: 60, opacity: 0.06 },
-  { top: 270, left: 110, w: 60, h: 45, opacity: 0.07 },
-  { top: 270, left: 190, w: 120, h: 50, opacity: 0.05 },
-  { top: 350, left: 15, w: 295, h: 35, opacity: 0.05 }, // Paths / roads
-  { top: 160, left: 15, w: 295, h: 12, opacity: 0.04 }, // Horizontal road
-  { top: 40, left: 100, w: 12, h: 330, opacity: 0.04 }, // Vertical road
-  { top: 40, left: 200, w: 10, h: 330, opacity: 0.04 }, // Vertical road 2
+// Dark map theme matching the app's palette.
+const darkMapStyle = [
+  { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#1a3646" }] },
+  { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
+  { featureType: "poi", elementType: "geometry", stylers: [{ color: "#283d6a" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#304a7d" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#2c6675" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e1626" }] },
 ];
-
-// ─── Pin component ────────────────────────────────────────────────────────────
-
-function MapPinMarker({ pin, onPress }: { pin: MapPin; onPress: () => void }) {
-  return (
-    <Pressable
-      style={[styles.pinWrap, { top: pin.top, left: pin.left }]}
-      onPress={onPress}
-    >
-      {/* Circle marker */}
-      <View style={[styles.pinDot, { backgroundColor: pin.color, shadowColor: pin.color }]} />
-      {/* Tail */}
-      <View style={[styles.pinTail, { backgroundColor: pin.color }]} />
-    </Pressable>
-  );
-}
-
-function PinLabel({ pin }: { pin: MapPin }) {
-  return (
-    <View
-      style={[
-        styles.pinLabel,
-        {
-          borderColor: pin.borderColor,
-          backgroundColor: pin.bgColor,
-          top: pin.top - 6,
-          left: pin.left + 34,
-        },
-      ]}
-    >
-      <Text style={styles.pinLabelEmoji}>{pin.emoji}</Text>
-      <Text style={[styles.pinLabelText, { color: pin.color }]} numberOfLines={1}>
-        {pin.label}
-      </Text>
-    </View>
-  );
-}
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
@@ -163,25 +112,17 @@ export default function EventsScreen() {
     ? events
     : events.filter(e => CATEGORY_MAP[e.category] === activeCategory);
 
-  const mapPins: MapPin[] = filteredEvents.slice(0, 5).map((e, i) => {
-    const color = CATEGORY_COLORS[e.category] || "rgba(99, 102, 241, 1)";
-    const positions = [
-      { top: 65, left: 30 },
-      { top: 120, left: 170 },
-      { top: 185, left: 60 },
-      { top: 240, left: 210 },
-      { top: 310, left: 100 },
-    ];
-    return {
-      id: e.eventId,
-      emoji: CATEGORY_EMOJI[e.category] || "🎉",
-      label: e.locationName || e.title,
-      color,
-      borderColor: color.replace("1)", "0.35)"),
-      bgColor: color.replace("1)", "0.12)"),
-      ...positions[i],
-    };
-  });
+  // Only events with real coordinates can be plotted on the map.
+  const eventsWithCoords = filteredEvents.filter(
+    (e) => e.latitude != null && e.longitude != null
+  );
+  const mapCenter = eventsWithCoords[0];
+  const initialRegion = {
+    latitude: mapCenter?.latitude ?? ECI_CENTER.latitude,
+    longitude: mapCenter?.longitude ?? ECI_CENTER.longitude,
+    latitudeDelta: 0.02,
+    longitudeDelta: 0.02,
+  };
 
   return (
     <SafeAreaView style={styles.root}>
@@ -249,51 +190,46 @@ export default function EventsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.mapCard, { width: MAP_WIDTH }]}>
-          {/* Abstract campus grid background */}
-          <View style={styles.mapInner}>
-            {/* Road lines */}
-            <View style={styles.roadH} />
-            <View style={styles.roadH2} />
-            <View style={styles.roadV} />
-            <View style={styles.roadV2} />
-
-            {/* Building blocks */}
-            {BUILDINGS.map((b, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.building,
-                  {
-                    top: b.top,
-                    left: b.left,
-                    width: b.w,
-                    height: b.h,
-                    backgroundColor: `rgba(255,255,255,${b.opacity})`,
-                  },
-                ]}
-              />
-            ))}
-
-            {/* Map pins + labels */}
-            {mapPins.map((pin) => (
-              <React.Fragment key={pin.id}>
-                <MapPinMarker
-                  pin={pin}
-                  onPress={() => setSelectedPin(selectedPin === pin.id ? null : pin.id)}
-                />
-                <PinLabel pin={pin} />
-              </React.Fragment>
-            ))}
-
-            {/* "ECI" watermark */}
-            <Text style={styles.mapWatermark}>ECI</Text>
+        {loading ? (
+          <View style={[styles.mapCard, styles.mapLoading, { width: MAP_WIDTH }]}>
+            <ActivityIndicator size="large" color="rgba(99, 102, 241, 1)" />
           </View>
-        </View>
+        ) : (
+          <View style={[styles.mapCard, { width: MAP_WIDTH }]}>
+            <MapView
+              style={StyleSheet.absoluteFill}
+              initialRegion={initialRegion}
+              customMapStyle={darkMapStyle}
+            >
+              {eventsWithCoords.map((event) => {
+                const color = CATEGORY_COLORS[event.category] || "rgba(99, 102, 241, 1)";
+                const emoji = CATEGORY_EMOJI[event.category] || "🎉";
+                return (
+                  <Marker
+                    key={event.eventId}
+                    coordinate={{ latitude: event.latitude, longitude: event.longitude }}
+                    onPress={() =>
+                      setSelectedPin(selectedPin === event.eventId ? null : event.eventId)
+                    }
+                  >
+                    <View
+                      style={[
+                        styles.markerPin,
+                        { backgroundColor: color, borderColor: color.replace("1)", "0.35)") },
+                      ]}
+                    >
+                      <Text style={styles.markerEmoji}>{emoji}</Text>
+                    </View>
+                  </Marker>
+                );
+              })}
+            </MapView>
+          </View>
+        )}
 
         {/* Hint text */}
         <Text style={styles.mapHint}>
-          {filteredEvents.length} evento{filteredEvents.length !== 1 ? "s" : ""} en el mapa · toca un pin para ver el detalle
+          {eventsWithCoords.length} evento{eventsWithCoords.length !== 1 ? "s" : ""} en el mapa · toca un marcador para ver el detalle
         </Text>
 
         {/* Events list */}
@@ -329,23 +265,24 @@ export default function EventsScreen() {
 
         {/* Selected pin detail card */}
         {selectedPin && (() => {
-          const pin = mapPins.find(p => p.id === selectedPin);
           const event = events.find(e => e.eventId === selectedPin);
-          if (!pin || !event) return null;
+          if (!event) return null;
+          const color = CATEGORY_COLORS[event.category] || "rgba(99, 102, 241, 1)";
+          const emoji = CATEGORY_EMOJI[event.category] || "🎉";
           return (
-            <View style={[styles.pinDetailCard, { borderColor: pin.borderColor, backgroundColor: pin.bgColor }]}>
+            <View style={[styles.pinDetailCard, { borderColor: color.replace("1)", "0.35)"), backgroundColor: color.replace("1)", "0.12)") }]}>
               <View style={styles.pinDetailLeft}>
-                <Text style={styles.pinDetailEmoji}>{pin.emoji}</Text>
+                <Text style={styles.pinDetailEmoji}>{emoji}</Text>
                 <View>
-                  <Text style={[styles.pinDetailLabel, { color: pin.color }]}>{event.title}</Text>
+                  <Text style={[styles.pinDetailLabel, { color }]}>{event.title}</Text>
                   <Text style={styles.pinDetailSub}>{event.locationName || "Sin ubicación"}</Text>
                 </View>
               </View>
               <Pressable 
-                style={[styles.pinDetailBtn, { borderColor: pin.borderColor }]}
+                style={[styles.pinDetailBtn, { borderColor: color.replace("1)", "0.35)") }]}
                 onPress={() => router.push({ pathname: '/event-detail', params: { id: event.eventId } })}
               >
-                <Text style={[styles.pinDetailBtnText, { color: pin.color }]}>Ver</Text>
+                <Text style={[styles.pinDetailBtnText, { color }]}>Ver</Text>
               </Pressable>
             </View>
           );
@@ -502,96 +439,27 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     height: 400,
   },
-  mapInner: {
-    flex: 1,
+  mapLoading: {
     backgroundColor: "rgba(14, 17, 35, 1)",
-    position: "relative",
-  },
-  // Roads
-  roadH: {
-    position: "absolute",
-    top: 158,
-    left: 0,
-    right: 0,
-    height: 10,
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-  },
-  roadH2: {
-    position: "absolute",
-    top: 270,
-    left: 0,
-    right: 0,
-    height: 10,
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-  },
-  roadV: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: 105,
-    width: 10,
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-  },
-  roadV2: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: 205,
-    width: 10,
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-  },
-  building: {
-    position: "absolute",
-    borderRadius: 4,
-  },
-  // Pin
-  pinWrap: {
-    position: "absolute",
-    flexDirection: "column",
     alignItems: "center",
-    zIndex: 10,
+    justifyContent: "center",
   },
-  pinDot: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    shadowOpacity: 0.6,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 0 },
+  // Custom map marker
+  markerPin: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
     elevation: 4,
   },
-  pinTail: {
-    width: 2,
-    height: 6,
-  },
-  pinLabel: {
-    position: "absolute",
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    gap: 3,
-    zIndex: 9,
-  },
-  pinLabelEmoji: {
-    fontSize: 10,
-  },
-  pinLabelText: {
-    fontSize: 10,
-    fontWeight: "500",
-    lineHeight: 15,
-  },
-  // Map watermark
-  mapWatermark: {
-    position: "absolute",
-    bottom: 12,
-    right: 16,
-    fontSize: 32,
-    fontWeight: "900",
-    color: "rgba(255, 255, 255, 0.04)",
-    letterSpacing: 4,
+  markerEmoji: {
+    fontSize: 16,
   },
 
   // ── Hint ──

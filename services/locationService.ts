@@ -5,10 +5,10 @@ const BASE = "/api/locations";
 
 export interface LiveParticipant {
   userId: string;
-  username: string;
   latitude: number;
   longitude: number;
-  timestamp: string;
+  /** ISO-8601 instant emitted by the backend (`recordedAt`). */
+  recordedAt: string;
 }
 
 export const locationService = {
