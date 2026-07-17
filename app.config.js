@@ -31,6 +31,9 @@ module.exports = function ({ config }) {
     extra: {
       ...config.extra,
       apiUrl: process.env.API_URL || config.extra?.apiUrl,
+      // Mirrors android.config.googleMaps.apiKey so the JS layer can detect
+      // whether the build was made with a Maps key and avoid crashing MapView.
+      googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
     },
   };
 };
