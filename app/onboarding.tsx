@@ -16,6 +16,7 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { AuthContext } from "@/context/AuthContext";
 import { userService } from "@/services/userService";
+import { apiClient } from "@/services/apiClient";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -109,8 +110,25 @@ export default function OnboardingScreen() {
       });
       setUserName(nombre.trim());
       router.replace("/(tabs)/home");
-    } catch (err: any) {
-      Alert.alert("Error", "No se pudo completar el registro. Intenta de nuevo.");
+    } catch {
+      // Backend may reject the combined payload — split into two calls:
+      // 1) Profile + onboardingCompleto via the profile endpoint
+      // 2) Interests via the dedicated /intereses endpoint
+      try {
+        await apiClient.put(`/api/v1/usuarios/${userId}/perfil`, {
+          nombre: nombre.trim(),
+          apellidos: apellidos.trim(),
+          carrera,
+          semestre: semestre!,
+          genero: genero || undefined,
+          onboardingCompleto: true,
+        });
+        await userService.updateIntereses(userId, selectedInterests);
+        setUserName(nombre.trim());
+        router.replace("/(tabs)/home");
+      } catch (err2: any) {
+        Alert.alert("Error", "No se pudo completar el registro. Intenta de nuevo.");
+      }
     } finally {
       setLoading(false);
     }

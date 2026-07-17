@@ -5,7 +5,6 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Path } from "react-native-svg";
 import * as Crypto from "expo-crypto";
-import { ParquesBoard } from "../../components/parques/ParquesBoard";
 import { parcheService } from "@/services/parcheService";
 import { useBoard } from "@/hooks/useBoard";
 import { useAuth } from "@/hooks/useAuth";
@@ -476,14 +475,12 @@ function ChatView({
 }
 
 function GamesView({ parcheId }: { parcheId?: string }) {
-  const { userId, userName } = useAuth();
+  const { userId } = useAuth();
   const [activeTool, setActiveTool] = useState<string>("pen");
   const [activeColor, setActiveColor] = useState<string>("rgba(241, 245, 249, 1)");
-  const [activeGame, setActiveGame] = useState<"list" | "lienzo" | "parques">("list");
+  const [activeGame, setActiveGame] = useState<"list" | "lienzo">("list");
 
   const canvasId = parcheId ?? null;
-  // One shared Parqués game per parche so every member joins the same board.
-  const parquesGameId = parcheId ? `parques-${parcheId}` : null;
   const {
     strokes: remoteStrokes,
     isConnected,
@@ -673,24 +670,6 @@ function GamesView({ parcheId }: { parcheId?: string }) {
     );
   }
 
-  if (activeGame === "parques") {
-    return (
-      <View style={styles.gameFullView}>
-        <View style={styles.parquesHeader}>
-          <Pressable style={styles.parquesBackBtn} onPress={() => setActiveGame("list")}>
-            <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.8)" />
-          </Pressable>
-          <Text style={styles.parquesHeaderTitle}>Parqués</Text>
-        </View>
-        <ParquesBoard
-          gameId={parquesGameId}
-          myPlayerId={userId ?? undefined}
-          myPlayerName={userName ?? undefined}
-        />
-      </View>
-    );
-  }
-
   // Games list
   return (
     <ScrollView
@@ -719,31 +698,6 @@ function GamesView({ parcheId }: { parcheId?: string }) {
           </View>
           <View style={styles.gamePlayBtn}>
             <Text style={styles.gamePlayBtnText}>Jugar →</Text>
-          </View>
-        </View>
-      </Pressable>
-
-      {/* Parqués Game Card */}
-      <Pressable style={styles.gameCardParques} onPress={() => setActiveGame("parques")}>
-        <View style={styles.gameCardInnerBorderParques}>
-          <View style={styles.gameIconRowParques}>
-            <View style={styles.parquesBoardSmall}>
-              <View style={styles.parquesRow}>
-                <View style={[styles.parquesSquare, { backgroundColor: "rgba(59, 91, 219, 0.5)" }]} />
-                <View style={[styles.parquesSquare, { backgroundColor: "rgba(242, 63, 67, 0.5)" }]} />
-              </View>
-              <View style={styles.parquesRow}>
-                <View style={[styles.parquesSquare, { backgroundColor: "rgba(35, 165, 89, 0.5)" }]} />
-                <View style={[styles.parquesSquare, { backgroundColor: "rgba(240, 178, 50, 0.5)" }]} />
-              </View>
-            </View>
-          </View>
-          <View style={styles.gameInfo}>
-            <Text style={[styles.gameTitle, { color: "rgba(251, 191, 36, 1)" }]}>Parqués</Text>
-            <Text style={styles.gameDesc}>El clásico colombiano con tu parche 🎲</Text>
-          </View>
-          <View style={[styles.gamePlayBtn, { borderColor: "rgba(251, 191, 36, 0.4)", backgroundColor: "rgba(251, 191, 36, 0.1)" }]}>
-            <Text style={[styles.gamePlayBtnText, { color: "rgba(251, 191, 36, 1)" }]}>Jugar →</Text>
           </View>
         </View>
       </Pressable>
@@ -1425,37 +1379,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
-  gameCardParques: {
-    height: 160,
-    borderRadius: 22,
-  },
-  gameCardInnerBorderParques: {
-    flex: 1,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "rgba(251, 191, 36, 0.2)",
-    padding: 16,
-    justifyContent: "space-between",
-  },
-  gameIconRowParques: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  parquesBoard: {
-    width: 66,
-    height: 66,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    overflow: "hidden",
-  },
-  parquesRow: {
-    flexDirection: "row",
-  },
-  parquesSquare: {
-    width: 32,
-    height: 32,
-  },
   gamePlayBtn: {
     alignSelf: "flex-start",
     borderWidth: 1,
@@ -1480,14 +1403,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(99, 102, 241, 0.3)",
     justifyContent: "center",
     alignItems: "center",
-  },
-  parquesBoardSmall: {
-    width: 66,
-    height: 66,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    overflow: "hidden",
   },
   // Lienzo full view
   gameFullView: {
@@ -1609,79 +1524,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     textAlign: "center",
-  },
-  // Parqués full view
-  parquesHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.06)",
-    gap: 10,
-  },
-  parquesBackBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  parquesHeaderTitle: {
-    color: "rgba(255, 255, 255, 1)",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  parquesBoardFull: {
-    margin: 20,
-    borderRadius: 20,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.07)",
-    backgroundColor: "rgba(14, 17, 35, 1)",
-  },
-  parquesQuadRow: {
-    flexDirection: "row",
-  },
-  parquesQuad: {
-    flex: 1,
-    height: 140,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-  },
-  parquesQuadEmoji: {
-    fontSize: 32,
-  },
-  parquesQuadLabel: {
-    color: "rgba(255, 255, 255, 0.7)",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  parquesCenter: {
-    width: 80,
-    height: 140,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-  },
-  parquesCenterBottom: {
-    width: 80,
-    height: 140,
-    backgroundColor: "rgba(255, 255, 255, 0.02)",
-  },
-  parquesCenterEmoji: {
-    fontSize: 36,
-  },
-  parquesComingSoon: {
-    color: "rgba(90, 90, 104, 1)",
-    fontSize: 11,
-    textAlign: "center",
-    marginTop: 16,
-    paddingHorizontal: 24,
   },
   moreGamesText: {
     color: "rgba(90, 90, 104, 1)",
