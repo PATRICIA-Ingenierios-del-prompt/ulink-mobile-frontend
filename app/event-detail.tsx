@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { eventService, type EventMapResponse } from '@/services/eventService';
+import { eventService, eventCoords, isEventStarted, type EventMapResponse } from '@/services/eventService';
 
 const CATEGORY_COLORS: Record<string, string> = {
   ACADEMIC: 'rgba(59, 140, 245, 1)',
@@ -25,6 +25,7 @@ export default function EventDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const [event, setEvent] = useState<EventMapResponse | null>(null);
+  const [started, setStarted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isJoining, setIsJoining] = useState(false);
 
@@ -40,8 +41,16 @@ export default function EventDetailScreen() {
     try {
       // Usar servicio público o detallado según backend real
       const data = await eventService.publicMap({ page: 0, size: 100 });
-      const found = data.content?.find(e => e.eventId === id);
-      setEvent(found || null);
+      const found = data.content?.find(e => e.eventId === id) ?? null;
+      setEvent(found);
+      setStarted(isEventStarted(found));
+      // Authoritative detail carries the `started` flag; enrich once loaded.
+      try {
+        const detail = await eventService.get(String(id));
+        setStarted(isEventStarted(detail) || isEventStarted(found));
+      } catch {
+        // keep the value derived from the map projection
+      }
     } catch (err) {
       console.log('Error loading event detail:', err);
     } finally {
@@ -113,26 +122,27 @@ export default function EventDetailScreen() {
             <Text style={styles.locationText}>{event.locationName || 'Sin ubicación específica'}</Text>
           </View>
 
-          {event.status === 'STARTED' && (
-            <Pressable
-              style={styles.liveBtn}
-              onPress={() =>
-                router.push({
-                  pathname: '/location',
-                  params: {
-                    eventId: event.eventId,
-                    name: event.title,
-                    ...(event.latitude != null && event.longitude != null
-                      ? { lat: String(event.latitude), lng: String(event.longitude) }
-                      : {}),
-                  },
-                })
-              }
-            >
-              <Ionicons name="radio" size={16} color="#7FE7C4" />
-              <Text style={styles.liveBtnText}>Ver ubicación en vivo</Text>
-            </Pressable>
-          )}
+          <Pressable
+            style={[styles.liveBtn, !started && styles.liveBtnDisabled]}
+            disabled={!started}
+            onPress={() => {
+              if (!started) return;
+              const c = eventCoords(event);
+              router.push({
+                pathname: '/location',
+                params: {
+                  eventId: event.eventId,
+                  name: event.title,
+                  ...(c ? { lat: String(c.latitude), lng: String(c.longitude) } : {}),
+                },
+              });
+            }}
+          >
+            <Ionicons name="radio" size={16} color={started ? '#7FE7C4' : '#90909A'} />
+            <Text style={[styles.liveBtnText, !started && styles.liveBtnTextDisabled]}>
+              {started ? 'Ver ubicación en vivo' : 'Ubicación en vivo al iniciar'}
+            </Text>
+          </Pressable>
         </View>
 
         {/* Stats */}
@@ -230,6 +240,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(127, 231, 196, 0.12)',
   },
   liveBtnText: { color: '#7FE7C4', fontSize: 13, fontWeight: '600', fontFamily: 'Inter' },
+  liveBtnDisabled: { borderColor: 'rgba(144, 144, 154, 0.25)', backgroundColor: 'rgba(144, 144, 154, 0.08)' },
+  liveBtnTextDisabled: { color: '#90909A' },
   
   statsRow: { flexDirection: 'row', paddingHorizontal: 24, gap: 16, marginBottom: 32 },
   statBox: {
