@@ -396,8 +396,8 @@ function ChatView({
               <Text style={[styles.chatLoadingText, { fontSize: 12 }]}>¡Sé el primero en escribir!</Text>
             </View>
           ) : (
-            allMessages.map((msg) => (
-              <View key={msg.id} style={[styles.messageRow, msg.isMe && styles.messageRowMe]}>
+            allMessages.map((msg, idx) => (
+              <View key={`${msg.id}-${idx}`} style={[styles.messageRow, msg.isMe && styles.messageRowMe]}>
                 {!msg.isMe && (
                   <View style={styles.messageAvatarBox}>
                     <View style={styles.messageAvatar}>

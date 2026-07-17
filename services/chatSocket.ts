@@ -4,6 +4,7 @@
  * WITHOUT SockJS). JWT rides as ?access_token= on the WS upgrade.
  */
 
+import 'text-encoding';
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import { API_URL } from "../config/api";
 import { tokenManager } from "./tokenManager";
@@ -49,7 +50,7 @@ export interface ComunicacionSocketOptions {
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
-const WS_PATH = "/ws-stomp";
+const WS_PATH = "/ws-stomp/websocket";
 
 function buildWsUrl(token: string): string {
   const base = API_URL.replace(/^http/, "ws");
@@ -69,6 +70,8 @@ export class ChatSocket {
         this.client.brokerURL = buildWsUrl(token);
         this.client.connectHeaders = { Authorization: `Bearer ${token}` };
       },
+      forceBinaryWSFrames: true,
+      appendMissingNULLonIncoming: true,
       reconnectDelay: 4000,
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
