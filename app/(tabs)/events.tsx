@@ -233,6 +233,7 @@ export default function EventsScreen() {
                       <Text style={styles.markerEmoji}>{emoji}</Text>
                     </View>
                   </Marker>
+                  
                 );
               })}
             </MapView>
