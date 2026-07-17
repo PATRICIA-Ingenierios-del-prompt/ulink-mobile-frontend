@@ -492,6 +492,7 @@ function GamesView({ parcheId }: { parcheId?: string }) {
   // Drawing state
   const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
   const [localPaths, setLocalPaths] = useState<Array<{ d: string; color: string; size: number }>>([]);
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   const activeColorRef = useRef(activeColor);
   const activeToolRef = useRef(activeTool);
@@ -625,8 +626,21 @@ function GamesView({ parcheId }: { parcheId?: string }) {
           <View style={[styles.lienzoBrushSize, { backgroundColor: activeColor }]} />
         </View>
         {/* Canvas area */}
-        <View style={styles.lienzoCanvas} {...panResponder.panHandlers}>
-          <Svg style={StyleSheet.absoluteFill}>
+        <View
+          style={styles.lienzoCanvas}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            setCanvasSize((prev) =>
+              prev.width === width && prev.height === height ? prev : { width, height }
+            );
+          }}
+          {...panResponder.panHandlers}
+        >
+          <Svg
+            style={StyleSheet.absoluteFill}
+            width={canvasSize.width || "100%"}
+            height={canvasSize.height || "100%"}
+          >
             {allPaths.map((p, idx) => (
               <Path
                 key={idx}
