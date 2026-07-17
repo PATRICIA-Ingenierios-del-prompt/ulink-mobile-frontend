@@ -325,7 +325,7 @@ function LiveMap({
           const pos = await Location.getCurrentPositionAsync({
             accuracy: Location.Accuracy.Balanced,
           });
-          if (alive && !presetCenter) {
+          if (alive) {
             setCenter({
               latitude: pos.coords.latitude,
               longitude: pos.coords.longitude,
