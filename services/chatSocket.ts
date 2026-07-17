@@ -50,7 +50,7 @@ export interface ComunicacionSocketOptions {
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
-const WS_PATH = "/ws-stomp/websocket";
+const WS_PATH = "/ws-stomp";
 
 function buildWsUrl(token: string): string {
   const base = API_URL.replace(/^http/, "ws");
