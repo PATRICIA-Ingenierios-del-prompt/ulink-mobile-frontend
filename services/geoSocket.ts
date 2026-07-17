@@ -14,6 +14,7 @@
  * so the session-scoped snapshot is never delivered before its listener exists.
  */
 
+import 'text-encoding';
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import { API_URL } from "../config/api";
 import { tokenManager } from "./tokenManager";
@@ -61,6 +62,10 @@ export class GeoSocket {
         this.client.brokerURL = buildWsUrl(token);
         this.client.connectHeaders = { Authorization: `Bearer ${token}` };
       },
+      // React Native STOMP needs a TextEncoder polyfill (imported above) plus
+      // binary frames and NULL-terminator fixup, matching the working chat socket.
+      forceBinaryWSFrames: true,
+      appendMissingNULLonIncoming: true,
       reconnectDelay: 4000,
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
