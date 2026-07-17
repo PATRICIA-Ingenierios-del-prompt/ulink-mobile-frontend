@@ -79,6 +79,10 @@ export default function ParcheScreen() {
   // ── Voice channel state (presence built from JOIN/LEAVE frames on /topic/voice/{chatId}) ──
   const [voiceParticipants, setVoiceParticipants] = useState<Array<{ userId: string; username: string }>>([]);
   const [inCall, setInCall] = useState(false);
+  // Se incrementa en cada CONNECT del STOMP: las suscripciones a /topic/* se
+  // pierden al reconectar (solo las colas /user/queue/* se restauran en
+  // _subscribeGlobal), así que cada reconexión debe re-suscribir el canal.
+  const [connGen, setConnGen] = useState(0);
 
   const { userId } = useAuth();
 
@@ -86,7 +90,7 @@ export default function ParcheScreen() {
     // Create and activate a persistent socket for this screen.
     destroyChatSocket();
     const socket = getChatSocket({
-      onConnect: () => {},
+      onConnect: () => setConnGen((g) => g + 1),
       // OFFER/ANSWER/ICE_CANDIDATE llegan por /user/queue/voice-signal
       onVoiceSignal: (signal) => voiceSignalRef.current(signal),
     });
@@ -169,7 +173,7 @@ export default function ParcheScreen() {
     }
 
     return () => unsub();
-  }, [chatId, userId]);
+  }, [chatId, userId, connGen]);
 
   const sendChatMessage = useCallback((content: string) => {
     if (!chatId || !socketRef.current) return;
@@ -190,6 +194,37 @@ export default function ParcheScreen() {
     }, 100);
     setTimeout(() => clearInterval(interval), 3000);
   }, [chatId]);
+
+  // ── Sync de participantes desde el snapshot REST ──
+  // Los eventos JOIN por /topic/voice solo cubren a quien entra DESPUÉS de
+  // nuestra suscripción; el snapshot cubre a los que ya estaban y resincroniza
+  // tras una reconexión (donde pudimos perder JOIN/LEAVE).
+  const refreshVoiceParticipants = useCallback(async () => {
+    if (!chatId) return;
+    try {
+      const { data } = await apiClient.get(`/api/voice/${chatId}/participants`);
+      if (!Array.isArray(data)) return;
+      const others = (data as Array<{ userId: string; username: string }>)
+        .filter((p) => p.userId !== userId);
+      // Reemplaza (no mezcla): el snapshot es la verdad y así se eliminan
+      // participantes obsoletos cuyos LEAVE se hayan perdido.
+      setVoiceParticipants(
+        others.map((p) => ({ userId: p.userId, username: p.username || "Usuario" }))
+      );
+    } catch (err) {
+      console.error("[voice] No se pudo sincronizar participantes:", err);
+    }
+  }, [chatId, userId]);
+
+  // Al tener chatId, al (re)conectar el socket y al abrir la pestaña de llamada
+  useEffect(() => {
+    if (!chatId) return;
+    refreshVoiceParticipants();
+  }, [chatId, connGen, refreshVoiceParticipants]);
+
+  useEffect(() => {
+    if (activeTab === "llamada") refreshVoiceParticipants();
+  }, [activeTab, refreshVoiceParticipants]);
 
   // ── Voice: join/leave over the same STOMP socket as the chat ──
   // Mismo flujo que el front web (ParchesView.realJoinVoice):
