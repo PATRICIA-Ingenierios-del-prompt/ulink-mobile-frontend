@@ -4,6 +4,7 @@
  * The Gateway validates JWT before proxying to Board MS.
  */
 
+import "text-encoding";
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import { API_URL } from "../config/api";
 import { apiClient } from "./apiClient";
@@ -86,6 +87,8 @@ export class BoardSocket {
         const token = (await tokenManager.getAccessToken()) ?? "";
         this.client.brokerURL = buildWsUrl(token);
       },
+      forceBinaryWSFrames: true,
+      appendMissingNULLonIncoming: true,
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,
       heartbeatOutgoing: 4000,
