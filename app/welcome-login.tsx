@@ -23,9 +23,13 @@ export default function WelcomeLoginScreen() {
   const [loading, setLoading] = useState(false);
 
   // ── OTP flow state ──
-  const [otpStep, setOtpStep] = useState<"none" | "email" | "code">("none");
+  const [otpStep, setOtpStep] = useState<"none" | "email" | "code" | "jurado">("none");
   const [otpEmail, setOtpEmail] = useState("");
   const [otpCode, setOtpCode] = useState("");
+
+  // ── Jurado (external evaluator) flow state ──
+  const [juradoEmail, setJuradoEmail] = useState("");
+  const [juradoPassword, setJuradoPassword] = useState("");
 
   // ── Microsoft OAuth ──
 
@@ -119,6 +123,43 @@ export default function WelcomeLoginScreen() {
     }
   }, [otpEmail, otpCode, login, router]);
 
+  // ── Jurado handler ──
+
+  const handleJuradoLogin = useCallback(async () => {
+    if (!juradoEmail.trim() || !juradoPassword) return;
+    try {
+      setLoading(true);
+      const tokens = await authService.loginJurado(juradoEmail.trim(), juradoPassword);
+      await login(tokens);
+      const { registerForPushNotifications } = await import("@/services/notificationsService");
+      registerForPushNotifications().catch(() => {});
+      const { userService } = await import("@/services/userService");
+      const { tokenManager } = await import("@/services/tokenManager");
+      const uid = tokenManager.getUserIdFromToken(tokens.accessToken);
+      if (uid) {
+        const needsOnboarding = await userService.necesitaOnboarding(uid);
+        if (needsOnboarding) {
+          router.replace("/onboarding" as any);
+          return;
+        }
+      }
+      router.replace("/(tabs)/home");
+    } catch (err: unknown) {
+      let message = "Correo o contraseña incorrectos";
+      if (err && typeof err === "object" && "response" in err) {
+        const axiosErr = err as { response?: { status?: number } };
+        if (axiosErr.response?.status !== 401) {
+          message = "No se pudo iniciar sesión. Intenta de nuevo.";
+        }
+      } else if (err instanceof Error) {
+        message = err.message;
+      }
+      Alert.alert("Error", message);
+    } finally {
+      setLoading(false);
+    }
+  }, [juradoEmail, juradoPassword, login, router]);
+
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.container}>
@@ -157,7 +198,13 @@ export default function WelcomeLoginScreen() {
                 <Text style={styles.otpLinkText}>Iniciar con código de correo</Text>
               </Pressable>
 
-
+              {/* Jurado access */}
+              <Pressable
+                style={styles.otpLink}
+                onPress={() => setOtpStep("jurado")}
+              >
+                <Text style={styles.otpLinkText}>¿Eres jurado? Inicia sesión aquí</Text>
+              </Pressable>
             </>
           ) : otpStep === "email" ? (
             <>
@@ -183,6 +230,52 @@ export default function WelcomeLoginScreen() {
                 )}
               </Pressable>
               <Pressable style={styles.otpLink} onPress={() => setOtpStep("none")}>
+                <Text style={styles.otpLinkText}>Volver</Text>
+              </Pressable>
+            </>
+          ) : otpStep === "jurado" ? (
+            <>
+              <Text style={styles.otpHint}>
+                Ingresa con el correo y la contraseña que te asignó el equipo de U·link.
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="jurado@ejemplo.com"
+                placeholderTextColor="rgba(90, 90, 104, 1)"
+                value={juradoEmail}
+                onChangeText={setJuradoEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Contraseña"
+                placeholderTextColor="rgba(90, 90, 104, 1)"
+                value={juradoPassword}
+                onChangeText={setJuradoPassword}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              <Pressable
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleJuradoLogin}
+                disabled={loading || !juradoEmail.trim() || !juradoPassword}
+              >
+                {loading ? (
+                  <ActivityIndicator color="rgba(10, 10, 12, 1)" size="small" />
+                ) : (
+                  <Text style={styles.signInButtonText}>Iniciar sesión</Text>
+                )}
+              </Pressable>
+              <Pressable
+                style={styles.otpLink}
+                onPress={() => {
+                  setOtpStep("none");
+                  setJuradoEmail("");
+                  setJuradoPassword("");
+                }}
+              >
                 <Text style={styles.otpLinkText}>Volver</Text>
               </Pressable>
             </>
