@@ -283,64 +283,111 @@ function LiveMap({
 
   useEffect(() => {
     let alive = true;
-    // Fetch initial snapshot
-    locationService
-      .liveSnapshot(eventId)
-      .then((rows) => {
-        if (!alive) return;
-        rows.forEach((r) =>
-          upsert({
-            userId: r.userId,
-            username: r.username,
-            latitude: r.latitude,
-            longitude: r.longitude,
-            timestamp: r.timestamp,
-            type: "POSITION",
-          })
-        );
-      })
-      .catch(() => {});
+    let sock: GeoSocket | null = null;
+    let locationSub: Location.LocationSubscription | null = null;
 
-    // Connect WebSocket
-    setSocketState("connecting");
-    const sock = new GeoSocket({
-      onConnect: () => {
-        setSocketState("up");
-        sock.subscribeToEvent(eventId);
-      },
-      onDisconnect: () => setSocketState("down"),
-      onGeoBroadcast: upsert,
-    });
-    socketRef.current = sock;
-    sock.activate();
+    (async () => {
+      // Request location permission before tracking
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setSocketState("down");
+        addToast({
+          type: "reporte",
+          title: "Permiso de ubicación",
+          message:
+            "Se necesita acceso a la ubicación para compartir tu posición en el evento.",
+        });
+        return;
+      }
 
-    // Watch own position
-    let lastSentAt = 0;
-    const MIN_INTERVAL_MS = 4000;
-    Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, distanceInterval: 5, timeInterval: 4000 },
-      (pos) => {
-        const now = Date.now();
-        if (now - lastSentAt < MIN_INTERVAL_MS) return;
-        lastSentAt = now;
-        if (socketRef.current?.connected) {
-          socketRef.current.sendPosition(
-            eventId,
-            pos.coords.latitude,
-            pos.coords.longitude
-          );
-        }
-        if (!presetCenter) {
-          setCenter({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      // Center the map on the current user location when no preset center exists
+      if (!presetCenter) {
+        try {
+          const pos = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          if (alive && !presetCenter) {
+            setCenter({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+            });
+          }
+        } catch {
+          // keep the default center
         }
       }
-    ).then((sub) => {
-      locationSubRef.current = sub;
-    }).catch(() => {});
+
+      // Fetch initial snapshot
+      locationService
+        .liveSnapshot(eventId)
+        .then((rows) => {
+          if (!alive) return;
+          rows.forEach((r) =>
+            upsert({
+              userId: r.userId,
+              username: r.username,
+              latitude: r.latitude,
+              longitude: r.longitude,
+              timestamp: r.timestamp,
+              type: "POSITION",
+            })
+          );
+        })
+        .catch(() => {});
+
+      // Connect WebSocket
+      setSocketState("connecting");
+      const s = new GeoSocket({
+        onConnect: () => {
+          setSocketState("up");
+          s.subscribeToEvent(eventId);
+        },
+        onDisconnect: () => setSocketState("down"),
+        onGeoBroadcast: upsert,
+      });
+      sock = s;
+      socketRef.current = s;
+      s.activate();
+
+      // Watch own position and broadcast it through the socket
+      let lastSentAt = 0;
+      const MIN_INTERVAL_MS = 4000;
+      try {
+        locationSub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            distanceInterval: 5,
+            timeInterval: 4000,
+          },
+          (pos) => {
+            const now = Date.now();
+            if (now - lastSentAt < MIN_INTERVAL_MS) return;
+            lastSentAt = now;
+            if (socketRef.current?.connected) {
+              socketRef.current.sendPosition(
+                eventId,
+                pos.coords.latitude,
+                pos.coords.longitude
+              );
+            }
+            if (!presetCenter) {
+              setCenter({
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+              });
+            }
+          }
+        );
+        locationSubRef.current = locationSub;
+      } catch {
+        // watchPositionAsync may fail if permission is denied or location is unavailable
+      }
+    })();
 
     return () => {
       alive = false;
-      sock.deactivate();
+      sock?.deactivate();
+      locationSub?.remove();
       locationSubRef.current?.remove();
     };
   }, [eventId]);
