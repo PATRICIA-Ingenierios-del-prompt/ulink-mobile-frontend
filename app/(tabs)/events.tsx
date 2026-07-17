@@ -14,6 +14,7 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTranslation } from "@/hooks/useTranslation";
 import { eventService, type EventMapResponse } from "@/services/eventService";
+import { isMapAvailable } from "@/config/maps";
 import { UserAvatar } from "@/components/UserAvatar";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -196,6 +197,14 @@ export default function EventsScreen() {
         {loading ? (
           <View style={[styles.mapCard, styles.mapLoading, { width: MAP_WIDTH }]}>
             <ActivityIndicator size="large" color="rgba(99, 102, 241, 1)" />
+          </View>
+        ) : !isMapAvailable ? (
+          <View style={[styles.mapCard, styles.mapLoading, { width: MAP_WIDTH }]}>
+            <Ionicons name="map-outline" size={40} color="rgba(143, 132, 224, 0.5)" />
+            <Text style={styles.mapFallbackText}>Mapa no disponible</Text>
+            <Text style={styles.mapFallbackSub}>
+              Revisa la lista de eventos abajo. El mapa requiere configurar la API key de Google Maps en la build.
+            </Text>
           </View>
         ) : (
           <View style={[styles.mapCard, { width: MAP_WIDTH }]}>
@@ -446,6 +455,20 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(14, 17, 35, 1)",
     alignItems: "center",
     justifyContent: "center",
+    padding: 24,
+  },
+  mapFallbackText: {
+    color: "rgba(255, 255, 255, 0.85)",
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: 12,
+  },
+  mapFallbackSub: {
+    color: "rgba(143, 132, 224, 0.7)",
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 17,
   },
   // Custom map marker
   markerPin: {

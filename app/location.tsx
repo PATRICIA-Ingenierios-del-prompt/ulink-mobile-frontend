@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import MapView, { Marker } from "react-native-maps";
+import { isMapAvailable } from "@/config/maps";
 import { useAuth } from "@/hooks/useAuth";
 import { useTranslation } from "@/hooks/useTranslation";
 import { addToast } from "@/components/ToastSystem";
@@ -464,37 +465,47 @@ function LiveMap({
         </Text>
       </View>
 
-      <MapView
-        style={{ flex: 1 }}
-        initialRegion={{
-          latitude: center.latitude,
-          longitude: center.longitude,
-          latitudeDelta: 0.008,
-          longitudeDelta: 0.008,
-        }}
-        showsUserLocation={false}
-        showsMyLocationButton
-        customMapStyle={darkMapStyle}
-      >
-        {[...positions.values()].map((p) => (
-          <Marker
-            key={p.userId}
-            coordinate={{ latitude: p.latitude, longitude: p.longitude }}
-            title={p.userId === myId ? "Tú" : p.userId}
-          >
-            <View
-              style={[
-                styles.customMarker,
-                { backgroundColor: colorForId(p.userId) },
-              ]}
+      {isMapAvailable ? (
+        <MapView
+          style={{ flex: 1 }}
+          initialRegion={{
+            latitude: center.latitude,
+            longitude: center.longitude,
+            latitudeDelta: 0.008,
+            longitudeDelta: 0.008,
+          }}
+          showsUserLocation={false}
+          showsMyLocationButton
+          customMapStyle={darkMapStyle}
+        >
+          {[...positions.values()].map((p) => (
+            <Marker
+              key={p.userId}
+              coordinate={{ latitude: p.latitude, longitude: p.longitude }}
+              title={p.userId === myId ? "Tú" : p.userId}
             >
-              <Text style={styles.markerText}>
-                {(p.userId === myId ? "T" : p.userId).charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          </Marker>
-        ))}
-      </MapView>
+              <View
+                style={[
+                  styles.customMarker,
+                  { backgroundColor: colorForId(p.userId) },
+                ]}
+              >
+                <Text style={styles.markerText}>
+                  {(p.userId === myId ? "T" : p.userId).charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            </Marker>
+          ))}
+        </MapView>
+      ) : (
+        <View style={styles.mapFallback}>
+          <Ionicons name="map-outline" size={44} color="rgba(143, 132, 224, 0.5)" />
+          <Text style={styles.mapFallbackText}>Mapa no disponible</Text>
+          <Text style={styles.mapFallbackSub}>
+            El seguimiento en vivo sigue activo; abre la lista de participantes. El mapa requiere configurar la API key de Google Maps en la build.
+          </Text>
+        </View>
+      )}
 
       {/* Participant count badge */}
       <Pressable
@@ -882,6 +893,27 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#90909A",
     marginTop: 1,
+  },
+  /* Map unavailable fallback */
+  mapFallback: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
+    backgroundColor: "rgba(14, 17, 35, 1)",
+  },
+  mapFallbackText: {
+    color: "rgba(255, 255, 255, 0.85)",
+    fontSize: 15,
+    fontWeight: "600",
+    marginTop: 12,
+  },
+  mapFallbackSub: {
+    color: "rgba(143, 132, 224, 0.7)",
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 17,
   },
   /* Custom marker */
   customMarker: {
