@@ -18,6 +18,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { communicationService, type ChatMessage } from "@/services/communicationService";
 import { useAuth } from "@/hooks/useAuth";
 import { getChatSocket, type ChatMessage as WsChatMessage } from "@/services/chatSocket";
+import { formatMessageTime } from "@/lib/formatMessageTime";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Audio } from "expo-av";
@@ -76,7 +77,7 @@ export default function ChatScreen() {
             id: msg.id,
             sender: msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario"),
             text: msg.content,
-            time: new Date(msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            time: formatMessageTime(msg.sentAt),
             isMe: msg.senderId === userId,
             image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
           };
@@ -115,12 +116,12 @@ export default function ChatScreen() {
         : await communicationService.getMessages(chatId, 0, 50);
         
       const mapped: Message[] = (data.content || []).map((m) => ({
-        id: m.id,
-        sender: m.senderName || "Usuario",
+        id: m.messageId || m.id || Math.random().toString(),
+        sender: m.senderUsername || m.senderName || "Usuario",
         text: m.content,
-        time: new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        time: formatMessageTime(m.sentAt || m.timestamp),
         isMe: m.senderId === userId,
-        image: m.type === "IMAGE" ? m.fileUrl : undefined,
+        image: m.type === "IMAGE" ? (m.fileUrl ?? undefined) : undefined,
         audioDuration: m.type === "AUDIO" && m.duration ? formatDuration(m.duration) : undefined,
       }));
       setMessages(mapped);
@@ -271,7 +272,7 @@ export default function ChatScreen() {
             const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
             if (permissionResult.granted === false) return;
             const result = await ImagePicker.launchCameraAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: "images",
               quality: 0.8,
             });
             if (!result.canceled) sendImageMessage(result.assets[0].uri);
@@ -283,7 +284,7 @@ export default function ChatScreen() {
             const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if (permissionResult.granted === false) return;
             const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: "images",
               quality: 0.8,
             });
             if (!result.canceled) sendImageMessage(result.assets[0].uri);
@@ -410,48 +411,19 @@ export default function ChatScreen() {
           {/* ── Chat Input ── */}
           <View style={styles.chatInputContainer}>
             <View style={styles.chatInputWrap}>
-              {isRecording ? (
-                <>
-                  <Pressable style={styles.chatCancelBtn} onPress={() => stopRecording(false)}>
-                    <Ionicons name="trash-outline" size={22} color="rgba(248, 113, 113, 1)" />
-                  </Pressable>
-                  <View style={styles.recordingIndicator}>
-                    <View style={styles.recordingDot} />
-                    <Text style={styles.recordingText}>Grabando audio ({recordingSeconds}s)...</Text>
-                  </View>
-                  <Pressable style={[styles.chatSendBtn, { backgroundColor: "rgba(35, 165, 89, 1)" }]} onPress={() => stopRecording(true)}>
-                    <Ionicons name="send" size={18} color="white" />
-                  </Pressable>
-                </>
-              ) : (
-                <>
-                  <Pressable style={styles.chatAttachBtn} onPress={handleAttachFile}>
-                    <Ionicons name="add" size={24} color="rgba(255, 255, 255, 0.6)" />
-                  </Pressable>
-                  <TextInput
-                    style={styles.chatInput}
-                    placeholder="Mensaje..."
-                    placeholderTextColor="rgba(90, 90, 104, 1)"
-                    value={text}
-                    onChangeText={setText}
-                  />
-                  <View style={styles.chatInputActions}>
-                    {text.trim().length > 0 ? (
-                      <Pressable style={styles.chatSendBtn} onPress={handleSend}>
-                        <Ionicons name="send" size={18} color="white" />
-                      </Pressable>
-                    ) : (
-                      <>
-                        <Pressable style={styles.chatIconBtn} onPress={handleCamera}>
-                          <Ionicons name="camera-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                        </Pressable>
-                        <Pressable style={styles.chatIconBtn} onPress={startRecording}>
-                          <Ionicons name="mic-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                        </Pressable>
-                      </>
-                    )}
-                  </View>
-                </>
+              <TextInput
+                style={styles.chatInput}
+                placeholder="Mensaje..."
+                placeholderTextColor="rgba(90, 90, 104, 1)"
+                value={text}
+                onChangeText={setText}
+                onSubmitEditing={handleSend}
+                returnKeyType="send"
+              />
+              {text.trim().length > 0 && (
+                <Pressable style={styles.chatSendBtn} onPress={handleSend}>
+                  <Ionicons name="send" size={18} color="white" />
+                </Pressable>
               )}
             </View>
           </View>

@@ -13,8 +13,9 @@ import { communicationService } from "@/services/communicationService";
 import { getChatSocket, destroyChatSocket } from "@/services/chatSocket";
 import type { ParcheResponse, ParcheCategory, UUID } from "@/services/types";
 import type { Stroke, Point } from "@/services/boardSocket";
+import { formatMessageTime } from "@/lib/formatMessageTime";
 
-type SubTab = "anuncios" | "general" | "apuntes" | "juegos";
+type SubTab = "general" | "apuntes" | "juegos";
 type PanelView = "miembros" | "ajustes" | null;
 
 const CATEGORY_LABELS: Record<ParcheCategory, string> = {
@@ -31,7 +32,7 @@ export default function ParcheScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { parcheId } = useLocalSearchParams<{ parcheId?: string }>();
-  const [activeTab, setActiveTab] = useState<SubTab>("anuncios");
+  const [activeTab, setActiveTab] = useState<SubTab>("general");
   const [panel, setPanel] = useState<PanelView>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [parche, setParche] = useState<ParcheResponse | null>(null);
@@ -98,7 +99,7 @@ export default function ParcheScreen() {
               sender: senderName,
               initials,
               text: msg.content,
-              time: new Date(msg.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              time: formatMessageTime(msg.sentAt),
               isMe: msg.senderId === userId,
               image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
             },
@@ -175,20 +176,6 @@ export default function ParcheScreen() {
 
         {/* ── Tab Row ── */}
         <View style={styles.tabRow}>
-          <Pressable
-            style={[styles.tabButton, activeTab === "anuncios" && styles.tabButtonActive]}
-            onPress={() => setActiveTab("anuncios")}
-          >
-            <Ionicons
-              name="megaphone-outline"
-              size={14}
-              color={activeTab === "anuncios" ? "rgba(129, 140, 248, 1)" : "rgba(90, 90, 104, 1)"}
-            />
-            <Text style={[styles.tabText, activeTab === "anuncios" && styles.tabTextActive]}>
-              anuncios
-            </Text>
-          </Pressable>
-
           <Pressable
             style={[styles.tabButton, activeTab === "general" && styles.tabButtonActive]}
             onPress={() => setActiveTab("general")}
@@ -284,7 +271,7 @@ export default function ParcheScreen() {
 }
 
 function ChatView({
-  activeTab = "anuncios",
+  activeTab = "general",
   chatId,
   loadingParche,
   rtMessages,
@@ -309,11 +296,6 @@ function ChatView({
   const [loadingMessages, setLoadingMessages] = useState(true);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Recording State
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-
   // ── Load message history from the REST API ──
   useEffect(() => {
     if (!chatId) {
@@ -329,7 +311,7 @@ function ChatView({
         if (cancelled) return;
         // Backend returns newest-first for page 0; reverse to chronological order.
         const mapped = [...(page.content || [])].reverse().map((m) => {
-          const senderName = m.senderName || "Usuario";
+          const senderName = m.senderUsername || m.senderName || "Usuario";
           const initials = senderName
             .split(" ")
             .map((w) => w[0])
@@ -337,13 +319,13 @@ function ChatView({
             .join("")
             .toUpperCase();
           return {
-            id: m.id,
+            id: m.messageId || m.id || Math.random().toString(),
             sender: senderName,
             initials,
             text: m.content,
-            time: new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            time: formatMessageTime(m.sentAt || m.timestamp),
             isMe: m.senderId === userId,
-            image: m.type === "IMAGE" ? m.fileUrl : undefined,
+            image: m.type === "IMAGE" ? (m.fileUrl ?? undefined) : undefined,
             audioDuration: m.type === "AUDIO" && m.duration ? formatAudioDuration(m.duration) : undefined,
           };
         });
@@ -364,8 +346,8 @@ function ChatView({
     [historicalMessages, rtMessages, historicalIds],
   );
 
-  // Local-only UI messages (voice notes, file attachments, camera — not yet wired to backend).
-  const [localMessages, setLocalMessages] = useState<Array<{
+  // Local-only UI messages (not yet wired to backend — kept for future use).
+  const [localMessages] = useState<Array<{
     id: string; sender: string; initials: string; text: string;
     time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string;
   }>>([]);
@@ -387,123 +369,6 @@ function ChatView({
     }, 100);
   };
 
-  const startRecording = () => {
-    setIsRecording(true);
-    setRecordingSeconds(0);
-    recordingTimer.current = setInterval(() => {
-      setRecordingSeconds((s) => s + 1);
-    }, 1000);
-  };
-
-  const stopRecording = (send: boolean) => {
-    if (recordingTimer.current) {
-      clearInterval(recordingTimer.current);
-      recordingTimer.current = null;
-    }
-    setIsRecording(false);
-    if (send && recordingSeconds > 0) {
-      const duration = formatAudioDuration(recordingSeconds);
-      const newMsg = {
-        id: Math.random().toString(),
-        sender: "Tú",
-        initials: "TÚ",
-        text: `Nota de voz (${duration})`,
-        audioDuration: duration,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isMe: true,
-      };
-      setLocalMessages((prev) => [...prev, newMsg]);
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-    }
-  };
-
-  const handleAttachFile = () => {
-    Alert.alert(
-      "Compartir archivo",
-      "Selecciona un archivo para enviar al parche:",
-      [
-        {
-          text: "📄 Apuntes_Calculo_III.pdf",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Apuntes_Calculo_III.pdf",
-              fileType: "pdf",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setLocalMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "📊 Taller_1_Matrices.zip",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Taller_1_Matrices.zip",
-              fileType: "zip",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setLocalMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "Cancelar",
-          style: "cancel"
-        }
-      ]
-    );
-  };
-
-  const handleCamera = () => {
-    Alert.alert(
-      "Compartir foto",
-      "Selecciona una opción:",
-      [
-        {
-          text: "📸 Tomar foto",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Foto tomada en el campus",
-              image: "https://picsum.photos/id/1018/600/400",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setLocalMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "🖼️ Elegir de galería",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Meme_parcial.jpg",
-              image: "https://picsum.photos/id/1025/600/400",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setLocalMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "Cancelar",
-          style: "cancel"
-        }
-      ]
-    );
-  };
 
   return (
     <KeyboardAvoidingView
@@ -588,50 +453,19 @@ function ChatView({
         {/* ── Chat Input ── */}
         <View style={styles.chatInputContainer}>
           <View style={styles.chatInputWrap}>
-            {isRecording ? (
-              <>
-                <Pressable style={styles.chatCancelBtn} onPress={() => stopRecording(false)}>
-                  <Ionicons name="trash-outline" size={22} color="rgba(248, 113, 113, 1)" />
-                </Pressable>
-                <View style={styles.recordingIndicator}>
-                  <View style={styles.recordingDot} />
-                  <Text style={styles.recordingText}>Grabando audio ({recordingSeconds}s)...</Text>
-                </View>
-                <Pressable style={[styles.chatSendBtn, { backgroundColor: "rgba(35, 165, 89, 1)" }]} onPress={() => stopRecording(true)}>
-                  <Ionicons name="send" size={18} color="white" />
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <Pressable style={styles.chatAttachBtn} onPress={handleAttachFile}>
-                  <Ionicons name="add" size={24} color="rgba(255, 255, 255, 0.6)" />
-                </Pressable>
-                <TextInput
-                  style={styles.chatInput}
-                  placeholder={`Escribe algo en #${activeTab}…`}
-                  placeholderTextColor="rgba(90, 90, 104, 1)"
-                  value={text}
-                  onChangeText={setText}
-                  onSubmitEditing={handleSend}
-                  returnKeyType="send"
-                />
-                <View style={styles.chatInputActions}>
-                  {text.trim().length > 0 ? (
-                    <Pressable style={styles.chatSendBtn} onPress={handleSend}>
-                      <Ionicons name="send" size={18} color="white" />
-                    </Pressable>
-                  ) : (
-                    <>
-                      <Pressable style={styles.chatIconBtn} onPress={handleCamera}>
-                        <Ionicons name="camera-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                      </Pressable>
-                      <Pressable style={styles.chatIconBtn} onPress={startRecording}>
-                        <Ionicons name="mic-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                      </Pressable>
-                    </>
-                  )}
-                </View>
-              </>
+            <TextInput
+              style={styles.chatInput}
+              placeholder={`Escribe algo en #${activeTab}…`}
+              placeholderTextColor="rgba(90, 90, 104, 1)"
+              value={text}
+              onChangeText={setText}
+              onSubmitEditing={handleSend}
+              returnKeyType="send"
+            />
+            {text.trim().length > 0 && (
+              <Pressable style={styles.chatSendBtn} onPress={handleSend}>
+                <Ionicons name="send" size={18} color="white" />
+              </Pressable>
             )}
           </View>
         </View>

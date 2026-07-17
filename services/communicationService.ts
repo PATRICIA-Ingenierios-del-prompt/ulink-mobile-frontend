@@ -3,15 +3,20 @@ import { apiClient } from "./apiClient";
 const BASE = "/api/chat";
 
 export interface ChatMessage {
-  id: string;
-  chatId: string;
+  messageId: string;
+  id?: string;
+  chatId?: string;
+  parcheId?: string;
   senderId: string;
-  senderName: string;
+  senderUsername: string;
+  senderName?: string;
   content: string;
-  timestamp: string;
-  type: "TEXT" | "IMAGE" | "AUDIO" | "FILE";
-  fileUrl?: string;
+  sentAt: string;
+  timestamp?: string;
+  type: "TEXT" | "IMAGE" | "AUDIO" | "FILE" | "SYSTEM";
+  fileUrl?: string | null;
   duration?: number;
+  readBy?: string[];
 }
 
 export interface Page<T> {
