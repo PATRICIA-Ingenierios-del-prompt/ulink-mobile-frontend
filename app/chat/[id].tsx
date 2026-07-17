@@ -331,10 +331,10 @@ export default function ChatScreen() {
               <Text style={styles.parcheSubtitle}>En línea</Text>
             </Pressable>
             <View style={styles.headerActions}>
-              <Pressable style={styles.actionButton} onPress={() => router.push("/call")}>
+              <Pressable style={styles.actionButton} onPress={() => router.push({ pathname: "/call", params: { chatId: chatId, name: `Usuario ${(chatId || "").substring(0, 4)}`, initials: (chatId || "U").substring(0, 2).toUpperCase() } })}>
                 <Ionicons name="call" size={20} color="rgba(255, 255, 255, 0.6)" />
               </Pressable>
-              <Pressable style={styles.actionButton} onPress={() => router.push("/video-call")}>
+              <Pressable style={styles.actionButton} onPress={() => router.push({ pathname: "/video-call", params: { chatId: chatId, name: `Usuario ${(chatId || "").substring(0, 4)}`, initials: (chatId || "U").substring(0, 2).toUpperCase() } })}>
                 <Ionicons name="videocam" size={20} color="rgba(255, 255, 255, 0.6)" />
               </Pressable>
             </View>

@@ -165,6 +165,16 @@ export default function ParcheScreen() {
             {parcheMembers ? <Text style={styles.parcheSubtitle}>{parcheMembers}</Text> : null}
           </View>
           <View style={styles.headerActions}>
+            {chatId && (
+              <>
+                <Pressable style={styles.actionButton} onPress={() => router.push({ pathname: "/call", params: { chatId, name: parcheTitle, initials: parcheEmoji } })}>
+                  <Ionicons name="call" size={20} color="rgba(255, 255, 255, 0.6)" />
+                </Pressable>
+                <Pressable style={styles.actionButton} onPress={() => router.push({ pathname: "/video-call", params: { chatId, name: parcheTitle, initials: parcheEmoji } })}>
+                  <Ionicons name="videocam" size={20} color="rgba(255, 255, 255, 0.6)" />
+                </Pressable>
+              </>
+            )}
             <Pressable style={styles.actionButton}>
               <Ionicons name="search" size={20} color="rgba(255, 255, 255, 0.6)" />
             </Pressable>
