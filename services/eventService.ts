@@ -28,6 +28,44 @@ export interface EventResponse extends EventMapResponse {
   pictureUrl: string;
 }
 
+/** Matches the backend `LocationDto`. */
+export interface LocationDto {
+  latitude?: number | null;
+  longitude?: number | null;
+  address?: string | null;
+  placeId?: string | null;
+}
+
+/**
+ * Matches the backend `CreateEventRequest` (POST /api/events).
+ * Dates/times are strings in the backend-declared formats.
+ */
+export interface CreateEventRequest {
+  name: string;
+  description: string;
+  category: string; // backend Category enum
+  maxCapacity: number;
+  eventDate: string; // yyyy-MM-dd
+  startTime: string; // HH:mm
+  endTime: string; // HH:mm
+  meetingPoint?: LocationDto | null;
+  destination?: LocationDto | null;
+  pictureUrl?: string | null;
+}
+
+/** Matches the backend `CreateEventResponse`. */
+export interface CreateEventResponse {
+  eventId: string;
+  name: string;
+  description: string;
+  category: string;
+  parcheId: string | null;
+  eventDate: string;
+  startTime: string;
+  endTime: string;
+  pictureUrl: string | null;
+}
+
 const pageParams = (p?: Pageable) => ({
   page: p?.page ?? 0,
   size: p?.size ?? 50, // Reduced default from 200 to 50 for performance
@@ -67,6 +105,11 @@ export const eventService = {
       () => apiClient.get<Page<EventMapResponse>>(`${BASE}/me/parches/events`, { params: p }).then((r) => r.data),
       30_000 // 30 s cache
     );
+  },
+
+  async createEvent(body: CreateEventRequest): Promise<CreateEventResponse> {
+    const { data } = await apiClient.post<CreateEventResponse>(BASE, body);
+    return data;
   },
 
   async join(eventId: string): Promise<void> {
