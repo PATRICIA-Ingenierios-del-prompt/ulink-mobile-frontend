@@ -30,7 +30,7 @@ export const translations = {
     // Profile
     your_profile: "TU PERFIL",
     level: "Nivel",
-    friends_count: "Amigos",
+    friends_count: "Matches",
     servers_count: "Servidores",
     events_count: "Eventos",
     interests: "INTERESES",
@@ -117,7 +117,7 @@ export const translations = {
     
     your_profile: "YOUR PROFILE",
     level: "Level",
-    friends_count: "Friends",
+    friends_count: "Matches",
     servers_count: "Servers",
     events_count: "Events",
     interests: "INTERESTS",
@@ -200,7 +200,7 @@ export const translations = {
     
     your_profile: "TON PROFIL",
     level: "Niveau",
-    friends_count: "Amis",
+    friends_count: "Matches",
     servers_count: "Serveurs",
     events_count: "Événements",
     interests: "CENTRES D'INTÉRÊT",
