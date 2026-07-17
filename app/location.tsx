@@ -17,7 +17,7 @@ import { isMapAvailable } from "@/config/maps";
 import { useAuth } from "@/hooks/useAuth";
 import { useTranslation } from "@/hooks/useTranslation";
 import { addToast } from "@/components/ToastSystem";
-import { eventService, type EventMapResponse } from "@/services/eventService";
+import { eventService, eventCoords, isEventStarted, type EventMapResponse } from "@/services/eventService";
 import { locationService, type LiveParticipant } from "@/services/locationService";
 import { GeoSocket, type GeoBroadcastMessage } from "@/services/geoSocket";
 
@@ -102,10 +102,7 @@ export default function LocationScreen() {
           events.map((e) => ({
             ...e,
             started: null,
-            center:
-              e.latitude != null && e.longitude != null
-                ? { latitude: e.latitude, longitude: e.longitude }
-                : null,
+            center: eventCoords(e),
             loading: true,
           }))
         );
@@ -119,11 +116,8 @@ export default function LocationScreen() {
                 x.eventId === e.eventId
                   ? {
                       ...x,
-                      started: detail.status === "STARTED",
-                      center:
-                        detail.latitude != null && detail.longitude != null
-                          ? { latitude: detail.latitude, longitude: detail.longitude }
-                          : x.center,
+                      started: isEventStarted(detail),
+                      center: eventCoords(detail) ?? x.center,
                       loading: false,
                     }
                   : x

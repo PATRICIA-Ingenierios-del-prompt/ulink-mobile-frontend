@@ -26,6 +26,31 @@ export interface EventResponse extends EventMapResponse {
   ownerName: string;
   parcheName: string;
   pictureUrl: string;
+  /** Backend `EventResponse.started`. Some deployments send `status` instead. */
+  started?: boolean;
+  participantCount?: number;
+  meetingPoint?: LocationDto | null;
+  destination?: LocationDto | null;
+}
+
+/** True when the event is in progress, tolerant of both backend shapes. */
+export function isEventStarted(
+  e: { started?: boolean | null; status?: string | null } | null | undefined
+): boolean {
+  return !!e && (e.started === true || e.status === "STARTED");
+}
+
+/** Resolve plottable coordinates from either the flat or the `destination` shape. */
+export function eventCoords(
+  e:
+    | { latitude?: number | null; longitude?: number | null; destination?: LocationDto | null }
+    | null
+    | undefined
+): { latitude: number; longitude: number } | null {
+  if (!e) return null;
+  const lat = e.latitude ?? e.destination?.latitude;
+  const lng = e.longitude ?? e.destination?.longitude;
+  return lat != null && lng != null ? { latitude: lat, longitude: lng } : null;
 }
 
 /** Matches the backend `LocationDto`. */
