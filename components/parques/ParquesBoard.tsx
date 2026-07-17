@@ -14,6 +14,7 @@ const GRID = 19;
 interface ParquesBoardProps {
   gameId?: string | null;
   myPlayerId?: string;
+  myPlayerName?: string;
 }
 
 // Triangle clip-paths as React Native View borders
@@ -24,7 +25,7 @@ const TRIANGLE_CLIPS: Record<string, { w: string; h: string; style: object }> = 
   left:  { w: "34%", h: "34%", style: { borderLeftWidth: 6, borderRightWidth: 0, borderBottomWidth: 0, borderTopWidth: 0 } },
 };
 
-export function ParquesBoard({ gameId, myPlayerId }: ParquesBoardProps) {
+export function ParquesBoard({ gameId, myPlayerId, myPlayerName }: ParquesBoardProps) {
   const insets = useSafeAreaInsets();
   const [boardWidth, setBoardWidth] = useState(0);
   const cellSize = boardWidth / GRID;
@@ -32,11 +33,15 @@ export function ParquesBoard({ gameId, myPlayerId }: ParquesBoardProps) {
   // Use online game if gameId + myPlayerId are provided, otherwise local mock
   const onlineGame = useParquesGameOnline(
     gameId ?? null,
-    myPlayerId ?? ""
+    myPlayerId ?? "",
+    myPlayerName ?? "Jugador"
   );
   const localGame = useParquesGame();
 
   const game = gameId && myPlayerId ? onlineGame : localGame;
+
+  // Which player slot is "me" (online rotates by join order; local mock is 0).
+  const myIndex = "myIndex" in game ? game.myIndex : 0;
 
   const {
     pieces, currentPlayer, dice, rolling, hasDiced, isDouble, diceSum,
@@ -196,7 +201,7 @@ export function ParquesBoard({ gameId, myPlayerId }: ParquesBoardProps) {
                 style={[styles.tabName, active && { color: P_COLORS[i], fontWeight: "700" }]}
                 numberOfLines={1}
               >
-                {name}{i === 0 ? " (Tú)" : ""}
+                {name}{i === myIndex ? " (Tú)" : ""}
               </Text>
               {done > 0 && <Text style={[styles.tabDone, { color: P_COLORS[i] }]}>{done}/4</Text>}
             </View>

@@ -476,12 +476,14 @@ function ChatView({
 }
 
 function GamesView({ parcheId }: { parcheId?: string }) {
-  const { userId } = useAuth();
+  const { userId, userName } = useAuth();
   const [activeTool, setActiveTool] = useState<string>("pen");
   const [activeColor, setActiveColor] = useState<string>("rgba(241, 245, 249, 1)");
   const [activeGame, setActiveGame] = useState<"list" | "lienzo" | "parques">("list");
 
   const canvasId = parcheId ?? null;
+  // One shared Parqués game per parche so every member joins the same board.
+  const parquesGameId = parcheId ? `parques-${parcheId}` : null;
   const {
     strokes: remoteStrokes,
     isConnected,
@@ -680,7 +682,11 @@ function GamesView({ parcheId }: { parcheId?: string }) {
           </Pressable>
           <Text style={styles.parquesHeaderTitle}>Parqués</Text>
         </View>
-        <ParquesBoard />
+        <ParquesBoard
+          gameId={parquesGameId}
+          myPlayerId={userId ?? undefined}
+          myPlayerName={userName ?? undefined}
+        />
       </View>
     );
   }
