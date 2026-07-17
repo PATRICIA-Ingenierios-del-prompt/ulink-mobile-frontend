@@ -10,12 +10,14 @@ import { useBoard } from "@/hooks/useBoard";
 import { useAuth } from "@/hooks/useAuth";
 import { ReportModal } from "@/components/ReportModal";
 import { communicationService } from "@/services/communicationService";
-import { getChatSocket, destroyChatSocket } from "@/services/chatSocket";
+import { apiClient } from "@/services/apiClient";
+import { getChatSocket, destroyChatSocket, type VoiceSignalPayload } from "@/services/chatSocket";
+import { voiceCall, isVoiceAvailable } from "@/services/voiceCall";
 import type { ParcheResponse, ParcheCategory, UUID } from "@/services/types";
 import type { Stroke, Point } from "@/services/boardSocket";
 import { formatMessageTime } from "@/lib/formatMessageTime";
 
-type SubTab = "general" | "apuntes" | "juegos";
+type SubTab = "general" | "apuntes" | "juegos" | "llamada";
 type PanelView = "miembros" | "ajustes" | null;
 
 const CATEGORY_LABELS: Record<ParcheCategory, string> = {
@@ -61,6 +63,12 @@ export default function ParcheScreen() {
   // Always use parche.communication.chatId for REST history + STOMP destinations.
   const chatId = parche?.communication?.chatId ?? null;
 
+  // Refs para que el cleanup del socket pueda enviar voice.leave antes de desconectar
+  const inCallRef = useRef(false);
+  const chatIdRef = useRef<string | null>(null);
+  // Siempre la última versión del handler de señales WebRTC (patrón del front web)
+  const voiceSignalRef = useRef<(s: VoiceSignalPayload) => void>(() => {});
+
   // ── Socket: one instance for this parche screen, activated once ──
   const socketRef = useRef<import("@/services/chatSocket").ChatSocket | null>(null);
   const [rtMessages, setRtMessages] = useState<Array<{
@@ -68,15 +76,28 @@ export default function ParcheScreen() {
     time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string;
   }>>([]);
 
+  // ── Voice channel state (presence built from JOIN/LEAVE frames on /topic/voice/{chatId}) ──
+  const [voiceParticipants, setVoiceParticipants] = useState<Array<{ userId: string; username: string }>>([]);
+  const [inCall, setInCall] = useState(false);
+
   const { userId } = useAuth();
 
   useEffect(() => {
     // Create and activate a persistent socket for this screen.
     destroyChatSocket();
-    const socket = getChatSocket({ onConnect: () => {} });
+    const socket = getChatSocket({
+      onConnect: () => {},
+      // OFFER/ANSWER/ICE_CANDIDATE llegan por /user/queue/voice-signal
+      onVoiceSignal: (signal) => voiceSignalRef.current(signal),
+    });
     socket.activate();
     socketRef.current = socket;
     return () => {
+      // Si el usuario sale de la pantalla estando en la llamada, avisamos antes de desconectar
+      if (inCallRef.current && chatIdRef.current && socket.connected) {
+        try { socket.leaveVoice(chatIdRef.current); } catch {}
+      }
+      voiceCall.stop();
       destroyChatSocket();
       socketRef.current = null;
     };
@@ -104,6 +125,27 @@ export default function ParcheScreen() {
               image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
             },
           ]);
+        },
+        onVoiceEvent: (evt) => {
+          if (evt.signalType === "JOIN") {
+            // Igual que el front web: nuestro propio JOIN no viene por aquí —
+            // el estado local lo maneja joinCall directamente.
+            if (evt.senderUserId === userId) return;
+            setVoiceParticipants((prev) =>
+              prev.some((p) => p.userId === evt.senderUserId)
+                ? prev
+                : [...prev, { userId: evt.senderUserId, username: evt.senderUsername || "Usuario" }]
+            );
+          } else {
+            // LEAVE: si es el nuestro (p. ej. expulsado por el servidor), salimos
+            if (evt.senderUserId === userId) {
+              setInCall(false);
+              voiceCall.stop();
+            } else {
+              voiceCall.closePeer(evt.senderUserId);
+            }
+            setVoiceParticipants((prev) => prev.filter((p) => p.userId !== evt.senderUserId));
+          }
         },
       });
     };
@@ -149,6 +191,93 @@ export default function ParcheScreen() {
     setTimeout(() => clearInterval(interval), 3000);
   }, [chatId]);
 
+  // ── Voice: join/leave over the same STOMP socket as the chat ──
+  // Mismo flujo que el front web (ParchesView.realJoinVoice):
+  // 1) capturar micrófono (getUserMedia) — si falla, no se publica nada
+  // 2) publicar voice.join (lanza si STOMP no está conectado)
+  // 3) marcar conectado en la UI de inmediato (no se espera eco del propio JOIN)
+  // 4) GET /api/voice/{chatId}/participants para quienes YA estaban en la llamada,
+  //    y ofrecerles WebRTC a cada uno (el recién llegado siempre inicia — anti-glare)
+  const doJoin = useCallback(async (socket: import("@/services/chatSocket").ChatSocket, cid: string) => {
+    try {
+      await voiceCall.start(cid);
+    } catch (err: any) {
+      console.error("[voice] getUserMedia falló:", err);
+      Alert.alert(
+        "Micrófono",
+        isVoiceAvailable()
+          ? "Permite el acceso al micrófono para unirte a la llamada."
+          : "Las llamadas de voz necesitan un development build (npx expo run:android). En Expo Go el audio no está disponible."
+      );
+      return;
+    }
+
+    try {
+      socket.joinVoice(cid); // throws si no conectado
+    } catch (err) {
+      console.error("[voice] No se pudo unir a la llamada:", err);
+      voiceCall.stop();
+      Alert.alert("Llamada no disponible", "No se pudo conectar con el servidor de voz. Intenta de nuevo en unos segundos.");
+      return;
+    }
+    setInCall(true);
+
+    try {
+      const { data } = await apiClient.get(`/api/voice/${cid}/participants`);
+      const others = ((data ?? []) as Array<{ userId: string; username: string }>)
+        .filter((p) => p.userId !== userId);
+      setVoiceParticipants((prev) => {
+        const merged = [...prev];
+        for (const p of others) {
+          if (!merged.some((m) => m.userId === p.userId)) {
+            merged.push({ userId: p.userId, username: p.username || "Usuario" });
+          }
+        }
+        return merged;
+      });
+      // El que entra ofrece a cada uno de los que ya estaban
+      others.forEach((p) => voiceCall.offerTo(p.userId));
+    } catch (err) {
+      console.error("[voice] No se pudo obtener participantes activos:", err);
+    }
+  }, [userId]);
+
+  const joinCall = useCallback(() => {
+    if (!chatId || !socketRef.current) return;
+    const socket = socketRef.current;
+
+    if (socket.connected) {
+      doJoin(socket, chatId).catch((err) =>
+        console.error("[voice] No se pudo unir a la llamada:", err)
+      );
+      return;
+    }
+
+    // Socket still connecting — retry for up to 3 s, same pattern as sendChatMessage
+    console.warn("[voice] joinVoice queued: STOMP not yet connected, retrying…");
+    const interval = setInterval(() => {
+      if (socket.connected) {
+        clearInterval(interval);
+        doJoin(socket, chatId).catch((err) =>
+          console.error("[voice] No se pudo unir a la llamada:", err)
+        );
+      }
+    }, 100);
+    setTimeout(() => clearInterval(interval), 3000);
+  }, [chatId, doJoin]);
+
+  const leaveCall = useCallback(() => {
+    if (!chatId || !socketRef.current) return;
+    socketRef.current.leaveVoice(chatId);
+    voiceCall.stop(); // cierra peers y libera el micrófono
+    setInCall(false);
+  }, [chatId]);
+
+  // Mantener refs al día para el cleanup del socket
+  inCallRef.current = inCall;
+  chatIdRef.current = chatId;
+  voiceSignalRef.current = (signal) => { voiceCall.handleSignal(signal, userId ?? null); };
+
   return (
     <SafeAreaView style={styles.root}>
       {/* ── Top Header ── */}
@@ -165,16 +294,6 @@ export default function ParcheScreen() {
             {parcheMembers ? <Text style={styles.parcheSubtitle}>{parcheMembers}</Text> : null}
           </View>
           <View style={styles.headerActions}>
-            {chatId && (
-              <>
-                <Pressable style={styles.actionButton} onPress={() => router.push({ pathname: "/call", params: { chatId, name: parcheTitle, initials: parcheEmoji } })}>
-                  <Ionicons name="call" size={20} color="rgba(255, 255, 255, 0.6)" />
-                </Pressable>
-                <Pressable style={styles.actionButton} onPress={() => router.push({ pathname: "/video-call", params: { chatId, name: parcheTitle, initials: parcheEmoji } })}>
-                  <Ionicons name="videocam" size={20} color="rgba(255, 255, 255, 0.6)" />
-                </Pressable>
-              </>
-            )}
             <Pressable style={styles.actionButton}>
               <Ionicons name="search" size={20} color="rgba(255, 255, 255, 0.6)" />
             </Pressable>
@@ -223,12 +342,40 @@ export default function ParcheScreen() {
               juegos
             </Text>
           </Pressable>
+
+          <Pressable
+            style={[styles.tabButton, activeTab === "llamada" && styles.tabButtonActive]}
+            onPress={() => setActiveTab("llamada")}
+          >
+            <Ionicons
+              name="call-outline"
+              size={14}
+              color={activeTab === "llamada" ? "rgba(129, 140, 248, 1)" : "rgba(90, 90, 104, 1)"}
+            />
+            <Text style={[styles.tabText, activeTab === "llamada" && styles.tabTextActive]}>
+              llamada
+            </Text>
+            {(voiceParticipants.length + (inCall ? 1 : 0)) > 0 && (
+              <View style={styles.tabBadge}>
+                <Text style={styles.tabBadgeText}>{voiceParticipants.length + (inCall ? 1 : 0)}</Text>
+              </View>
+            )}
+          </Pressable>
         </View>
       </View>
 
       {/* ── Content Area ── */}
       {activeTab === "juegos" ? (
         <GamesView parcheId={parcheId} />
+      ) : activeTab === "llamada" ? (
+        <CallView
+          chatId={chatId}
+          inCall={inCall}
+          participants={voiceParticipants}
+          myUserId={userId}
+          onJoin={joinCall}
+          onLeave={leaveCall}
+        />
       ) : (
         <ChatView activeTab={activeTab} chatId={chatId} loadingParche={loadingParche} rtMessages={rtMessages} onSend={sendChatMessage} />
       )}
@@ -481,6 +628,151 @@ function ChatView({
         </View>
       </View>
     </KeyboardAvoidingView>
+  );
+}
+
+function CallView({
+  chatId,
+  inCall,
+  participants,
+  myUserId,
+  onJoin,
+  onLeave,
+}: {
+  chatId: string | null;
+  inCall: boolean;
+  participants: Array<{ userId: string; username: string }>;
+  myUserId?: string | null;
+  onJoin: () => void;
+  onLeave: () => void;
+}) {
+  const [joining, setJoining] = useState(false);
+  const [micActive, setMicActive] = useState(true);
+  const [callSeconds, setCallSeconds] = useState(0);
+
+  // El JOIN propio llega como eco del servidor → inCall pasa a true y dejamos de "conectar"
+  useEffect(() => {
+    if (inCall) setJoining(false);
+  }, [inCall]);
+
+  // Timer de duración mientras estamos en la llamada
+  useEffect(() => {
+    if (!inCall) {
+      setCallSeconds(0);
+      return;
+    }
+    const interval = setInterval(() => setCallSeconds((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [inCall]);
+
+  const formatTimer = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const handleJoin = () => {
+    if (!chatId) return;
+    setJoining(true);
+    onJoin();
+    // Si en 5 s el servidor no confirmó el JOIN, liberamos el botón
+    setTimeout(() => setJoining(false), 5000);
+  };
+
+  const initialsOf = (name: string) =>
+    name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "U";
+
+  // "participants" son los demás (el propio JOIN se filtra, como en el front web);
+  // cuando estamos en la llamada nos mostramos primero.
+  const displayed = inCall
+    ? [{ userId: myUserId ?? "me", username: "Tú" }, ...participants]
+    : participants;
+
+  if (!chatId) {
+    return (
+      <View style={styles.callRoot}>
+        <ActivityIndicator color="rgba(129, 140, 248, 1)" />
+        <Text style={styles.callEmptyText}>Cargando canal de voz…</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.callRoot}>
+      {/* Estado de la sala */}
+      <View style={styles.callStatusRow}>
+        <View style={[styles.callStatusDot, displayed.length > 0 && styles.callStatusDotActive]} />
+        <Text style={styles.callStatusText}>
+          {displayed.length === 0
+            ? "Nadie está en la llamada"
+            : `${displayed.length} en llamada`}
+        </Text>
+        {inCall && <Text style={styles.callTimerText}>{formatTimer(callSeconds)}</Text>}
+      </View>
+
+      {/* Participantes */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.callParticipantsGrid}>
+        {displayed.length === 0 ? (
+          <View style={styles.callEmptyState}>
+            <Ionicons name="mic-off-outline" size={40} color="rgba(90, 90, 104, 1)" />
+            <Text style={styles.callEmptyText}>
+              El canal de voz está vacío.{"\n"}Únete para empezar la llamada.
+            </Text>
+          </View>
+        ) : (
+          displayed.map((p) => (
+            <View key={p.userId} style={styles.callParticipant}>
+              <View style={[styles.callAvatar, p.userId === myUserId && styles.callAvatarMe]}>
+                <Text style={styles.callAvatarText}>{p.username === "Tú" ? "TÚ" : initialsOf(p.username)}</Text>
+              </View>
+              <Text style={styles.callParticipantName} numberOfLines={1}>{p.username}</Text>
+            </View>
+          ))
+        )}
+      </ScrollView>
+
+      {/* Controles */}
+      <View style={styles.callControls}>
+        {inCall ? (
+          <>
+            <Pressable
+              style={[styles.callControlButton, micActive && styles.callControlButtonActive]}
+              onPress={() => {
+                setMicActive((m) => {
+                  voiceCall.setMuted(m); // si estaba activo, ahora se silencia
+                  return !m;
+                });
+              }}
+            >
+              <Ionicons
+                name={micActive ? "mic" : "mic-off-outline"}
+                size={22}
+                color={micActive ? "rgba(129, 140, 248, 1)" : "rgba(255, 255, 255, 0.8)"}
+              />
+            </Pressable>
+            <Pressable style={styles.callLeaveButton} onPress={onLeave}>
+              <Ionicons name="call" size={24} color="white" style={{ transform: [{ rotate: "135deg" }] }} />
+              <Text style={styles.callLeaveText}>Salir</Text>
+            </Pressable>
+          </>
+        ) : (
+          <Pressable
+            style={[styles.callJoinButton, joining && styles.callJoinButtonDisabled]}
+            onPress={handleJoin}
+            disabled={joining}
+          >
+            {joining ? (
+              <ActivityIndicator color="white" size="small" />
+            ) : (
+              <Ionicons name="call" size={22} color="white" />
+            )}
+            <Text style={styles.callJoinText}>
+              {joining ? "Conectando…" : "Unirse a la llamada"}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
   );
 }
 
@@ -1079,6 +1371,155 @@ const styles = StyleSheet.create({
   },
   tabTextActive: {
     color: "rgba(129, 140, 248, 1)",
+  },
+  tabBadge: {
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: "rgba(34, 197, 94, 0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  tabBadgeText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+
+  // ── Call View ──
+  callRoot: {
+    flex: 1,
+    paddingTop: 20,
+  },
+  callStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  callStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(90, 90, 104, 1)",
+  },
+  callStatusDotActive: {
+    backgroundColor: "rgba(34, 197, 94, 1)",
+  },
+  callStatusText: {
+    color: "rgba(255, 255, 255, 0.6)",
+    fontSize: 13,
+    fontWeight: "500",
+    flex: 1,
+  },
+  callTimerText: {
+    color: "rgba(129, 140, 248, 1)",
+    fontSize: 13,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
+  },
+  callParticipantsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 20,
+    padding: 20,
+    flexGrow: 1,
+  },
+  callEmptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+  },
+  callEmptyText: {
+    color: "rgba(90, 90, 104, 1)",
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  callParticipant: {
+    alignItems: "center",
+    gap: 8,
+    width: 72,
+  },
+  callAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(99, 102, 241, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "rgba(99, 102, 241, 0.35)",
+  },
+  callAvatarMe: {
+    borderColor: "rgba(34, 197, 94, 0.8)",
+  },
+  callAvatarText: {
+    color: "rgba(255, 255, 255, 1)",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  callParticipantName: {
+    color: "rgba(255, 255, 255, 0.75)",
+    fontSize: 12,
+    fontWeight: "500",
+    maxWidth: 72,
+  },
+  callControls: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 16,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+  },
+  callControlButton: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+  },
+  callControlButtonActive: {
+    borderColor: "rgba(99, 102, 241, 0.3)",
+    backgroundColor: "rgba(99, 102, 241, 0.15)",
+  },
+  callJoinButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(34, 197, 94, 1)",
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 27,
+  },
+  callJoinButtonDisabled: {
+    opacity: 0.6,
+  },
+  callJoinText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  callLeaveButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(242, 63, 67, 1)",
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 27,
+  },
+  callLeaveText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "700",
   },
 
   // ── Placeholders ──
