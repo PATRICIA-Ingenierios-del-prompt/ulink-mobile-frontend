@@ -116,7 +116,10 @@ export default function EventsScreen() {
   const eventsWithCoords = filteredEvents.filter(
     (e) => e.latitude != null && e.longitude != null
   );
-  const mapCenter = eventsWithCoords[0];
+  // `find` yields `EventMapResponse | undefined`, so the fallback below is real.
+  const mapCenter = filteredEvents.find(
+    (e) => e.latitude != null && e.longitude != null
+  );
   const initialRegion = {
     latitude: mapCenter?.latitude ?? ECI_CENTER.latitude,
     longitude: mapCenter?.longitude ?? ECI_CENTER.longitude,
