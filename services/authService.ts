@@ -42,6 +42,14 @@ export const authService = {
     return data;
   },
 
+  async loginJurado(email: string, password: string): Promise<TokenResponse> {
+    const { data } = await apiClient.post<TokenResponse>("/auth/login/jurado", {
+      email,
+      password,
+    });
+    return data;
+  },
+
   async logout(): Promise<void> {
     const refreshToken = await tokenManager.getRefreshToken();
     await tokenManager.clearTokens();
