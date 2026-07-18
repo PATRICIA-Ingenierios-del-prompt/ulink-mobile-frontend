@@ -1,10 +1,11 @@
 import {StyleSheet} from 'react-native';
-import {View, Text, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, Alert, Image, Keyboard} from 'react-native';
+import {View, Text, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, Alert, Image, Keyboard, ActivityIndicator} from 'react-native';
 import React, { useState, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import type {ViewStyle, StyleProp} from 'react-native';
+import { sendChatMessage } from '../../services/llmApi';
 
 export interface Bienestar1Props {
   /** Used to override the default root style. */
@@ -24,15 +25,6 @@ interface MonoMessage {
   audioDuration?: string;
 }
 
-const MONO_RESPONSES: string[] = [
-  "Cuéntame más, estoy aquí para escucharte 🐾",
-  "Eso suena difícil. ¿Cuánto tiempo llevas sintiéndote así?",
-  "Recuerda que no estás solo/a. Mono siempre está aquí 💛",
-  "Gracias por compartirlo conmigo. ¿Qué crees que lo está causando?",
-  "Hmm, eso es importante. ¿Has podido hablar con alguien más sobre esto?",
-  "Es completamente normal sentir eso. ¿Qué te ayudaría ahora mismo? 🌿",
-];
-
 const QUICK_REPLIES = [
   "Me siento estresado 😓",
   "Tengo ansiedad 😰",
@@ -46,6 +38,7 @@ export function Bienestar1(props: Bienestar1Props) {
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
   const [text, setText] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimer = useRef<NodeJS.Timeout | null>(null);
@@ -65,8 +58,8 @@ export function Bienestar1(props: Bienestar1Props) {
     },
   ]);
 
-  const sendMessage = (msg: string) => {
-    if (!msg.trim()) return;
+  const sendMessage = async (msg: string) => {
+    if (!msg.trim() || isTyping) return;
     const userMsg: MonoMessage = {
       id: Math.random().toString(),
       text: msg.trim(),
@@ -77,17 +70,27 @@ export function Bienestar1(props: Bienestar1Props) {
     setText('');
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
 
-    // Mono auto-reply after a short delay
-    setTimeout(() => {
-      const reply = MONO_RESPONSES[Math.floor(Math.random() * MONO_RESPONSES.length)];
+    // Show typing indicator while waiting for LLM response
+    setIsTyping(true);
+    try {
+      const response = await sendChatMessage(msg.trim());
       setMessages(prev => [...prev, {
         id: Math.random().toString(),
-        text: reply,
+        text: response,
         isMe: false,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }]);
+    } catch {
+      setMessages(prev => [...prev, {
+        id: Math.random().toString(),
+        text: 'No pude conectarme en este momento. Intenta de nuevo en unos segundos 🐾',
+        isMe: false,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }]);
+    } finally {
+      setIsTyping(false);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-    }, 1200);
+    }
   };
 
   const startRecording = () => {
@@ -272,6 +275,18 @@ export function Bienestar1(props: Bienestar1Props) {
                     </View>
                   </View>
                 ))}
+
+                {/* Mono typing indicator — shown while waiting for LLM response */}
+                {isTyping && (
+                  <View style={styles.msgRow}>
+                    <View style={styles.monoAvatar2}>
+                      <Text style={{ fontSize: 14 }}>🐕</Text>
+                    </View>
+                    <View style={[styles.msgBubble, styles.msgBubbleOther, styles.typingBubble]}>
+                      <ActivityIndicator size="small" color="rgba(245, 158, 11, 0.8)" />
+                    </View>
+                  </View>
+                )}
               </ScrollView>
 
               {/* Quick-reply chips */}
@@ -313,15 +328,16 @@ export function Bienestar1(props: Bienestar1Props) {
                         value={text}
                         onChangeText={setText}
                         returnKeyType="send"
+                        editable={!isTyping}
                         onSubmitEditing={() => sendMessage(text)}
                       />
                       {text.trim().length > 0 ? (
-                        <Pressable style={styles.monoSendBtn} onPress={() => sendMessage(text)}>
+                        <Pressable style={[styles.monoSendBtn, isTyping && { opacity: 0.4 }]} onPress={() => sendMessage(text)} disabled={isTyping}>
                           <Ionicons name="send" size={14} color="white" />
                         </Pressable>
                       ) : (
-                        <Pressable style={styles.monoMicBtn} onPress={startRecording}>
-                          <Ionicons name="mic-outline" size={18} color="rgba(245, 158, 11, 0.7)" />
+                        <Pressable style={styles.monoMicBtn} onPress={startRecording} disabled={isTyping}>
+                          <Ionicons name="mic-outline" size={18} color={isTyping ? 'rgba(58, 58, 68, 1)' : 'rgba(245, 158, 11, 0.7)'} />
                         </Pressable>
                       )}
                     </>
@@ -1435,5 +1451,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     fontFamily: 'Inter',
+  },
+  typingBubble: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    minWidth: 60,
   },
 });

@@ -26,6 +26,69 @@ export interface EventResponse extends EventMapResponse {
   ownerName: string;
   parcheName: string;
   pictureUrl: string;
+  /** Backend `EventResponse.started`. Some deployments send `status` instead. */
+  started?: boolean;
+  participantCount?: number;
+  meetingPoint?: LocationDto | null;
+  destination?: LocationDto | null;
+}
+
+/** True when the event is in progress, tolerant of both backend shapes. */
+export function isEventStarted(
+  e: { started?: boolean | null; status?: string | null } | null | undefined
+): boolean {
+  return !!e && (e.started === true || e.status === "STARTED");
+}
+
+/** Resolve plottable coordinates from either the flat or the `destination` shape. */
+export function eventCoords(
+  e:
+    | { latitude?: number | null; longitude?: number | null; destination?: LocationDto | null }
+    | null
+    | undefined
+): { latitude: number; longitude: number } | null {
+  if (!e) return null;
+  const lat = e.latitude ?? e.destination?.latitude;
+  const lng = e.longitude ?? e.destination?.longitude;
+  return lat != null && lng != null ? { latitude: lat, longitude: lng } : null;
+}
+
+/** Matches the backend `LocationDto`. */
+export interface LocationDto {
+  latitude?: number | null;
+  longitude?: number | null;
+  address?: string | null;
+  placeId?: string | null;
+}
+
+/**
+ * Matches the backend `CreateEventRequest` (POST /api/events).
+ * Dates/times are strings in the backend-declared formats.
+ */
+export interface CreateEventRequest {
+  name: string;
+  description: string;
+  category: string; // backend Category enum
+  maxCapacity: number;
+  eventDate: string; // yyyy-MM-dd
+  startTime: string; // HH:mm
+  endTime: string; // HH:mm
+  meetingPoint?: LocationDto | null;
+  destination?: LocationDto | null;
+  pictureUrl?: string | null;
+}
+
+/** Matches the backend `CreateEventResponse`. */
+export interface CreateEventResponse {
+  eventId: string;
+  name: string;
+  description: string;
+  category: string;
+  parcheId: string | null;
+  eventDate: string;
+  startTime: string;
+  endTime: string;
+  pictureUrl: string | null;
 }
 
 const pageParams = (p?: Pageable) => ({
@@ -67,6 +130,11 @@ export const eventService = {
       () => apiClient.get<Page<EventMapResponse>>(`${BASE}/me/parches/events`, { params: p }).then((r) => r.data),
       30_000 // 30 s cache
     );
+  },
+
+  async createEvent(body: CreateEventRequest): Promise<CreateEventResponse> {
+    const { data } = await apiClient.post<CreateEventResponse>(BASE, body);
+    return data;
   },
 
   async join(eventId: string): Promise<void> {

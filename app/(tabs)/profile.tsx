@@ -18,6 +18,9 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTranslation } from "@/hooks/useTranslation";
 import { AuthContext } from "@/context/AuthContext";
 import { userService } from "@/services/userService";
+import { matchingService } from "@/services/matchingService";
+import { parcheService } from "@/services/parcheService";
+import { eventService } from "@/services/eventService";
 import type { PerfilResponse, ActualizarPerfilPayload } from "@/services/types";
 
 // ─── Activity Item ───────────────────────────────────────────────────────────
@@ -44,12 +47,15 @@ function ActivityItem({ initials, name, action, time, color, noBorder }: any) {
 export default function ProfileScreen() {
   const router = useRouter();
   const { t } = useTranslation();
-  const { userId, userName } = useContext(AuthContext);
+  const { userId, userName, setUserName, setUserPhoto, refreshProfile } = useContext(AuthContext);
 
   const [profile, setProfile] = useState<PerfilResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [matchesCount, setMatchesCount] = useState<number | null>(null);
+  const [parchesCount, setParchesCount] = useState<number | null>(null);
+  const [eventsCount, setEventsCount] = useState<number | null>(null);
 
   // Draft state used while editing
   const [draft, setDraft] = useState<ActualizarPerfilPayload>({
@@ -65,16 +71,43 @@ export default function ProfileScreen() {
     try {
       const data = await userService.getPerfil(userId);
       setProfile(data);
+      // Keep auth context in sync so the top-bar avatar/name update immediately
+      const fullNameFromApi = [data.nombre, data.apellidos].filter(Boolean).join(" ").trim();
+      if (fullNameFromApi) {
+        setUserName(fullNameFromApi);
+      }
+      if (data.foto) {
+        setUserPhoto(data.foto);
+      }
     } catch {
       // Profile may not exist yet — show defaults
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, setUserName, setUserPhoto]);
 
   useEffect(() => {
     fetchProfile();
   }, [fetchProfile]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const fetchStats = async () => {
+      try {
+        const [matches, parches, events] = await Promise.all([
+          matchingService.listarMatches().catch(() => []),
+          parcheService.mine({ page: 0, size: 1 }).catch(() => ({ totalElements: 0 })),
+          eventService.myJoinedEvents({ page: 0, size: 1 }).catch(() => ({ totalElements: 0 })),
+        ]);
+        setMatchesCount(matches.length);
+        setParchesCount(parches.totalElements);
+        setEventsCount(events.totalElements);
+      } catch {
+        // Stats are non-critical
+      }
+    };
+    fetchStats();
+  }, [userId]);
 
   const fullName = profile
     ? [profile.nombre, profile.apellidos].filter(Boolean).join(" ")
@@ -111,6 +144,8 @@ export default function ProfileScreen() {
       const updated = await userService.updatePerfil(userId, draft);
       setProfile((prev) => (prev ? { ...prev, ...updated } : updated));
       setIsEditing(false);
+      // Push the updated name + photo to AuthContext so every screen reflects the change
+      await refreshProfile();
     } catch (err: any) {
       Alert.alert("Error", "No se pudo guardar el perfil. Intenta de nuevo.");
     } finally {
@@ -360,20 +395,20 @@ export default function ProfileScreen() {
           ) : null}
         </View>
 
-        {/* ── Stats (placeholder — web also shows "--") ── */}
+        {/* ── Stats ── */}
         <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statCount}>--</Text>
+          <Pressable style={styles.statItem} onPress={() => router.push("/matches")}>
+            <Text style={styles.statCount}>{matchesCount !== null ? matchesCount : "--"}</Text>
             <Text style={styles.statLabel}>{t("friends_count")}</Text>
-          </View>
+          </Pressable>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statCount}>--</Text>
+            <Text style={styles.statCount}>{parchesCount !== null ? parchesCount : "--"}</Text>
             <Text style={styles.statLabel}>{t("servers_count")}</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statCount}>--</Text>
+            <Text style={styles.statCount}>{eventsCount !== null ? eventsCount : "--"}</Text>
             <Text style={styles.statLabel}>{t("events_count")}</Text>
           </View>
         </View>

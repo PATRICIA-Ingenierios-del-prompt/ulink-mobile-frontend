@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -13,10 +13,11 @@ import {
   View,
 } from "react-native";
 import MapView, { Marker } from "react-native-maps";
+import { isMapAvailable } from "@/config/maps";
 import { useAuth } from "@/hooks/useAuth";
 import { useTranslation } from "@/hooks/useTranslation";
 import { addToast } from "@/components/ToastSystem";
-import { eventService, type EventMapResponse } from "@/services/eventService";
+import { eventService, eventCoords, isEventStarted, type EventMapResponse } from "@/services/eventService";
 import { locationService, type LiveParticipant } from "@/services/locationService";
 import { GeoSocket, type GeoBroadcastMessage } from "@/services/geoSocket";
 
@@ -62,13 +63,33 @@ export default function LocationScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const { userId: myId } = useAuth();
+  const params = useLocalSearchParams<{
+    eventId?: string;
+    name?: string;
+    lat?: string;
+    lng?: string;
+  }>();
   const [enrolled, setEnrolled] = useState<EventCard[]>([]);
   const [loading, setLoading] = useState(true);
+  // When navigated with an eventId param (e.g. from an event's detail screen),
+  // jump straight into the live map for that event.
   const [selectedEvent, setSelectedEvent] = useState<{
     eventId: string;
     name: string;
     center: { latitude: number; longitude: number } | null;
-  } | null>(null);
+  } | null>(() => {
+    if (!params.eventId) return null;
+    const lat = params.lat != null ? Number(params.lat) : NaN;
+    const lng = params.lng != null ? Number(params.lng) : NaN;
+    return {
+      eventId: params.eventId,
+      name: params.name ?? "Ubicación en vivo",
+      center:
+        !Number.isNaN(lat) && !Number.isNaN(lng)
+          ? { latitude: lat, longitude: lng }
+          : null,
+    };
+  });
 
   useEffect(() => {
     let alive = true;
@@ -81,10 +102,7 @@ export default function LocationScreen() {
           events.map((e) => ({
             ...e,
             started: null,
-            center:
-              e.latitude != null && e.longitude != null
-                ? { latitude: e.latitude, longitude: e.longitude }
-                : null,
+            center: eventCoords(e),
             loading: true,
           }))
         );
@@ -98,11 +116,8 @@ export default function LocationScreen() {
                 x.eventId === e.eventId
                   ? {
                       ...x,
-                      started: detail.status === "STARTED",
-                      center:
-                        detail.latitude != null && detail.longitude != null
-                          ? { latitude: detail.latitude, longitude: detail.longitude }
-                          : x.center,
+                      started: isEventStarted(detail),
+                      center: eventCoords(detail) ?? x.center,
                       loading: false,
                     }
                   : x
@@ -271,10 +286,9 @@ function LiveMap({
         const n = new Map(prev);
         n.set(p.userId, {
           userId: p.userId,
-          username: p.username ?? "",
           latitude: p.latitude,
           longitude: p.longitude,
-          timestamp: p.timestamp,
+          recordedAt: p.recordedAt,
         });
         return n;
       }),
@@ -283,70 +297,109 @@ function LiveMap({
 
   useEffect(() => {
     let alive = true;
-    // Fetch initial snapshot
-    locationService
-      .liveSnapshot(eventId)
-      .then((rows) => {
-        if (!alive) return;
-        rows.forEach((r) =>
-          upsert({
-            userId: r.userId,
-            username: r.username,
-            latitude: r.latitude,
-            longitude: r.longitude,
-            timestamp: r.timestamp,
-            type: "POSITION",
-          })
-        );
-      })
-      .catch(() => {});
+    let sock: GeoSocket | null = null;
+    let locationSub: Location.LocationSubscription | null = null;
 
-    // Connect WebSocket
-    setSocketState("connecting");
-    const sock = new GeoSocket({
-      onConnect: () => {
-        setSocketState("up");
-        sock.subscribeToEvent(eventId);
-      },
-      onDisconnect: () => setSocketState("down"),
-      onGeoBroadcast: upsert,
-    });
-    socketRef.current = sock;
-    sock.activate();
+    (async () => {
+      // Request location permission before tracking
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setSocketState("down");
+        addToast({
+          type: "reporte",
+          title: "Permiso de ubicación",
+          message:
+            "Se necesita acceso a la ubicación para compartir tu posición en el evento.",
+        });
+        return;
+      }
 
-    // Watch own position
-    let lastSentAt = 0;
-    const MIN_INTERVAL_MS = 4000;
-    Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, distanceInterval: 5, timeInterval: 4000 },
-      (pos) => {
-        const now = Date.now();
-        if (now - lastSentAt < MIN_INTERVAL_MS) return;
-        lastSentAt = now;
-        if (socketRef.current?.connected) {
-          socketRef.current.sendPosition(
-            eventId,
-            pos.coords.latitude,
-            pos.coords.longitude
-          );
-        }
-        if (!presetCenter) {
-          setCenter({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      // Center the map on the current user location when no preset center exists
+      if (!presetCenter) {
+        try {
+          const pos = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          if (alive) {
+            setCenter({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+            });
+          }
+        } catch {
+          // keep the default center
         }
       }
-    ).then((sub) => {
-      locationSubRef.current = sub;
-    }).catch(() => {});
+
+      // Fetch initial snapshot
+      locationService
+        .liveSnapshot(eventId)
+        .then((rows) => {
+          if (!alive) return;
+          rows.forEach((r) => upsert(r));
+        })
+        .catch(() => {});
+
+      // Connect WebSocket
+      setSocketState("connecting");
+      const s = new GeoSocket({
+        onConnect: () => {
+          setSocketState("up");
+          s.subscribeToEvent(eventId);
+        },
+        onDisconnect: () => setSocketState("down"),
+        onGeoBroadcast: upsert,
+        onGeoSnapshot: (snap) => snap.positions.forEach(upsert),
+      });
+      sock = s;
+      socketRef.current = s;
+      s.activate();
+
+      // Watch own position and broadcast it through the socket
+      let lastSentAt = 0;
+      const MIN_INTERVAL_MS = 4000;
+      try {
+        locationSub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            distanceInterval: 5,
+            timeInterval: 4000,
+          },
+          (pos) => {
+            const now = Date.now();
+            if (now - lastSentAt < MIN_INTERVAL_MS) return;
+            lastSentAt = now;
+            if (socketRef.current?.connected) {
+              socketRef.current.sendPosition(
+                eventId,
+                pos.coords.latitude,
+                pos.coords.longitude
+              );
+            }
+            if (!presetCenter) {
+              setCenter({
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+              });
+            }
+          }
+        );
+        locationSubRef.current = locationSub;
+      } catch {
+        // watchPositionAsync may fail if permission is denied or location is unavailable
+      }
+    })();
 
     return () => {
       alive = false;
-      sock.deactivate();
+      sock?.deactivate();
+      locationSub?.remove();
       locationSubRef.current?.remove();
     };
   }, [eventId]);
 
   const participantList = [...positions.values()].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
   );
 
   const markerColors = [
@@ -406,37 +459,47 @@ function LiveMap({
         </Text>
       </View>
 
-      <MapView
-        style={{ flex: 1 }}
-        initialRegion={{
-          latitude: center.latitude,
-          longitude: center.longitude,
-          latitudeDelta: 0.008,
-          longitudeDelta: 0.008,
-        }}
-        showsUserLocation={false}
-        showsMyLocationButton
-        customMapStyle={darkMapStyle}
-      >
-        {[...positions.values()].map((p) => (
-          <Marker
-            key={p.userId}
-            coordinate={{ latitude: p.latitude, longitude: p.longitude }}
-            title={p.username || p.userId}
-          >
-            <View
-              style={[
-                styles.customMarker,
-                { backgroundColor: colorForId(p.userId) },
-              ]}
+      {isMapAvailable ? (
+        <MapView
+          style={{ flex: 1 }}
+          initialRegion={{
+            latitude: center.latitude,
+            longitude: center.longitude,
+            latitudeDelta: 0.008,
+            longitudeDelta: 0.008,
+          }}
+          showsUserLocation={false}
+          showsMyLocationButton
+          customMapStyle={darkMapStyle}
+        >
+          {[...positions.values()].map((p) => (
+            <Marker
+              key={p.userId}
+              coordinate={{ latitude: p.latitude, longitude: p.longitude }}
+              title={p.userId === myId ? "Tú" : p.userId}
             >
-              <Text style={styles.markerText}>
-                {(p.username ?? p.userId).charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          </Marker>
-        ))}
-      </MapView>
+              <View
+                style={[
+                  styles.customMarker,
+                  { backgroundColor: colorForId(p.userId) },
+                ]}
+              >
+                <Text style={styles.markerText}>
+                  {(p.userId === myId ? "T" : p.userId).charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            </Marker>
+          ))}
+        </MapView>
+      ) : (
+        <View style={styles.mapFallback}>
+          <Ionicons name="map-outline" size={44} color="rgba(143, 132, 224, 0.5)" />
+          <Text style={styles.mapFallbackText}>Mapa no disponible</Text>
+          <Text style={styles.mapFallbackSub}>
+            El seguimiento en vivo sigue activo; abre la lista de participantes. El mapa requiere configurar la API key de Google Maps en la build.
+          </Text>
+        </View>
+      )}
 
       {/* Participant count badge */}
       <Pressable
@@ -458,7 +521,7 @@ function LiveMap({
           )}
           <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
             {participantList.map((p) => {
-              const tc = timeAgo(p.timestamp);
+              const tc = timeAgo(p.recordedAt);
               const isMe = p.userId === myId;
               return (
                 <View key={p.userId} style={styles.participantRow}>
@@ -470,7 +533,7 @@ function LiveMap({
                   />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.participantName} numberOfLines={1}>
-                      {isMe ? "Tú" : p.username || p.userId.slice(0, 8)}
+                      {isMe ? "Tú" : p.userId.slice(0, 8)}
                     </Text>
                     <Text style={styles.participantTime}>Activo · {tc}</Text>
                   </View>
@@ -824,6 +887,27 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#90909A",
     marginTop: 1,
+  },
+  /* Map unavailable fallback */
+  mapFallback: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
+    backgroundColor: "rgba(14, 17, 35, 1)",
+  },
+  mapFallbackText: {
+    color: "rgba(255, 255, 255, 0.85)",
+    fontSize: 15,
+    fontWeight: "600",
+    marginTop: 12,
+  },
+  mapFallbackSub: {
+    color: "rgba(143, 132, 224, 0.7)",
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 17,
   },
   /* Custom marker */
   customMarker: {

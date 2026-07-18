@@ -4,17 +4,20 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Path } from "react-native-svg";
-import { ParquesBoard } from "../../components/parques/ParquesBoard";
+import * as Crypto from "expo-crypto";
 import { parcheService } from "@/services/parcheService";
 import { useBoard } from "@/hooks/useBoard";
 import { useAuth } from "@/hooks/useAuth";
 import { ReportModal } from "@/components/ReportModal";
 import { communicationService } from "@/services/communicationService";
-import { getChatSocket, destroyChatSocket } from "@/services/chatSocket";
+import { apiClient } from "@/services/apiClient";
+import { getChatSocket, destroyChatSocket, type VoiceSignalPayload } from "@/services/chatSocket";
+import { voiceCall, isVoiceAvailable } from "@/services/voiceCall";
 import type { ParcheResponse, ParcheCategory, UUID } from "@/services/types";
 import type { Stroke, Point } from "@/services/boardSocket";
+import { formatMessageTime } from "@/lib/formatMessageTime";
 
-type SubTab = "anuncios" | "general" | "apuntes" | "juegos";
+type SubTab = "general" | "apuntes" | "juegos" | "llamada";
 type PanelView = "miembros" | "ajustes" | null;
 
 const CATEGORY_LABELS: Record<ParcheCategory, string> = {
@@ -31,7 +34,7 @@ export default function ParcheScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { parcheId } = useLocalSearchParams<{ parcheId?: string }>();
-  const [activeTab, setActiveTab] = useState<SubTab>("anuncios");
+  const [activeTab, setActiveTab] = useState<SubTab>("general");
   const [panel, setPanel] = useState<PanelView>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [parche, setParche] = useState<ParcheResponse | null>(null);
@@ -60,6 +63,12 @@ export default function ParcheScreen() {
   // Always use parche.communication.chatId for REST history + STOMP destinations.
   const chatId = parche?.communication?.chatId ?? null;
 
+  // Refs para que el cleanup del socket pueda enviar voice.leave antes de desconectar
+  const inCallRef = useRef(false);
+  const chatIdRef = useRef<string | null>(null);
+  // Siempre la última versión del handler de señales WebRTC (patrón del front web)
+  const voiceSignalRef = useRef<(s: VoiceSignalPayload) => void>(() => {});
+
   // ── Socket: one instance for this parche screen, activated once ──
   const socketRef = useRef<import("@/services/chatSocket").ChatSocket | null>(null);
   const [rtMessages, setRtMessages] = useState<Array<{
@@ -67,15 +76,32 @@ export default function ParcheScreen() {
     time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string;
   }>>([]);
 
+  // ── Voice channel state (presence built from JOIN/LEAVE frames on /topic/voice/{chatId}) ──
+  const [voiceParticipants, setVoiceParticipants] = useState<Array<{ userId: string; username: string }>>([]);
+  const [inCall, setInCall] = useState(false);
+  // Se incrementa en cada CONNECT del STOMP: las suscripciones a /topic/* se
+  // pierden al reconectar (solo las colas /user/queue/* se restauran en
+  // _subscribeGlobal), así que cada reconexión debe re-suscribir el canal.
+  const [connGen, setConnGen] = useState(0);
+
   const { userId } = useAuth();
 
   useEffect(() => {
     // Create and activate a persistent socket for this screen.
     destroyChatSocket();
-    const socket = getChatSocket({ onConnect: () => {} });
+    const socket = getChatSocket({
+      onConnect: () => setConnGen((g) => g + 1),
+      // OFFER/ANSWER/ICE_CANDIDATE llegan por /user/queue/voice-signal
+      onVoiceSignal: (signal) => voiceSignalRef.current(signal),
+    });
     socket.activate();
     socketRef.current = socket;
     return () => {
+      // Si el usuario sale de la pantalla estando en la llamada, avisamos antes de desconectar
+      if (inCallRef.current && chatIdRef.current && socket.connected) {
+        try { socket.leaveVoice(chatIdRef.current); } catch {}
+      }
+      voiceCall.stop();
       destroyChatSocket();
       socketRef.current = null;
     };
@@ -98,11 +124,32 @@ export default function ParcheScreen() {
               sender: senderName,
               initials,
               text: msg.content,
-              time: new Date(msg.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              time: formatMessageTime(msg.sentAt),
               isMe: msg.senderId === userId,
               image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
             },
           ]);
+        },
+        onVoiceEvent: (evt) => {
+          if (evt.signalType === "JOIN") {
+            // Igual que el front web: nuestro propio JOIN no viene por aquí —
+            // el estado local lo maneja joinCall directamente.
+            if (evt.senderUserId === userId) return;
+            setVoiceParticipants((prev) =>
+              prev.some((p) => p.userId === evt.senderUserId)
+                ? prev
+                : [...prev, { userId: evt.senderUserId, username: evt.senderUsername || "Usuario" }]
+            );
+          } else {
+            // LEAVE: si es el nuestro (p. ej. expulsado por el servidor), salimos
+            if (evt.senderUserId === userId) {
+              setInCall(false);
+              voiceCall.stop();
+            } else {
+              voiceCall.closePeer(evt.senderUserId);
+            }
+            setVoiceParticipants((prev) => prev.filter((p) => p.userId !== evt.senderUserId));
+          }
         },
       });
     };
@@ -126,17 +173,145 @@ export default function ParcheScreen() {
     }
 
     return () => unsub();
-  }, [chatId, userId]);
+  }, [chatId, userId, connGen]);
 
   const sendChatMessage = useCallback((content: string) => {
     if (!chatId || !socketRef.current) return;
-    if (!socketRef.current.connected) {
-      // Socket still connecting — silently drop; the user can try again in <1s.
-      console.warn("[chat] sendMessage skipped: STOMP not yet connected");
+    const socket = socketRef.current;
+
+    if (socket.connected) {
+      socket.sendMessage(chatId, content, "TEXT");
       return;
     }
-    socketRef.current.sendMessage(chatId, content, "TEXT");
+
+    // Socket still connecting — retry for up to 3 s instead of dropping the message
+    console.warn("[chat] sendMessage queued: STOMP not yet connected, retrying…");
+    const interval = setInterval(() => {
+      if (socket.connected) {
+        clearInterval(interval);
+        socket.sendMessage(chatId, content, "TEXT");
+      }
+    }, 100);
+    setTimeout(() => clearInterval(interval), 3000);
   }, [chatId]);
+
+  // ── Sync de participantes desde el snapshot REST ──
+  // Los eventos JOIN por /topic/voice solo cubren a quien entra DESPUÉS de
+  // nuestra suscripción; el snapshot cubre a los que ya estaban y resincroniza
+  // tras una reconexión (donde pudimos perder JOIN/LEAVE).
+  const refreshVoiceParticipants = useCallback(async () => {
+    if (!chatId) return;
+    try {
+      const { data } = await apiClient.get(`/api/voice/${chatId}/participants`);
+      if (!Array.isArray(data)) return;
+      const others = (data as Array<{ userId: string; username: string }>)
+        .filter((p) => p.userId !== userId);
+      // Reemplaza (no mezcla): el snapshot es la verdad y así se eliminan
+      // participantes obsoletos cuyos LEAVE se hayan perdido.
+      setVoiceParticipants(
+        others.map((p) => ({ userId: p.userId, username: p.username || "Usuario" }))
+      );
+    } catch (err) {
+      console.error("[voice] No se pudo sincronizar participantes:", err);
+    }
+  }, [chatId, userId]);
+
+  // Al tener chatId, al (re)conectar el socket y al abrir la pestaña de llamada
+  useEffect(() => {
+    if (!chatId) return;
+    refreshVoiceParticipants();
+  }, [chatId, connGen, refreshVoiceParticipants]);
+
+  useEffect(() => {
+    if (activeTab === "llamada") refreshVoiceParticipants();
+  }, [activeTab, refreshVoiceParticipants]);
+
+  // ── Voice: join/leave over the same STOMP socket as the chat ──
+  // Mismo flujo que el front web (ParchesView.realJoinVoice):
+  // 1) capturar micrófono (getUserMedia) — si falla, no se publica nada
+  // 2) publicar voice.join (lanza si STOMP no está conectado)
+  // 3) marcar conectado en la UI de inmediato (no se espera eco del propio JOIN)
+  // 4) GET /api/voice/{chatId}/participants para quienes YA estaban en la llamada,
+  //    y ofrecerles WebRTC a cada uno (el recién llegado siempre inicia — anti-glare)
+  const doJoin = useCallback(async (socket: import("@/services/chatSocket").ChatSocket, cid: string) => {
+    try {
+      await voiceCall.start(cid);
+    } catch (err: any) {
+      console.error("[voice] getUserMedia falló:", err);
+      Alert.alert(
+        "Micrófono",
+        isVoiceAvailable()
+          ? "Permite el acceso al micrófono para unirte a la llamada."
+          : "Las llamadas de voz necesitan un development build (npx expo run:android). En Expo Go el audio no está disponible."
+      );
+      return;
+    }
+
+    try {
+      socket.joinVoice(cid); // throws si no conectado
+    } catch (err) {
+      console.error("[voice] No se pudo unir a la llamada:", err);
+      voiceCall.stop();
+      Alert.alert("Llamada no disponible", "No se pudo conectar con el servidor de voz. Intenta de nuevo en unos segundos.");
+      return;
+    }
+    setInCall(true);
+
+    try {
+      const { data } = await apiClient.get(`/api/voice/${cid}/participants`);
+      const others = ((data ?? []) as Array<{ userId: string; username: string }>)
+        .filter((p) => p.userId !== userId);
+      setVoiceParticipants((prev) => {
+        const merged = [...prev];
+        for (const p of others) {
+          if (!merged.some((m) => m.userId === p.userId)) {
+            merged.push({ userId: p.userId, username: p.username || "Usuario" });
+          }
+        }
+        return merged;
+      });
+      // El que entra ofrece a cada uno de los que ya estaban
+      others.forEach((p) => voiceCall.offerTo(p.userId));
+    } catch (err) {
+      console.error("[voice] No se pudo obtener participantes activos:", err);
+    }
+  }, [userId]);
+
+  const joinCall = useCallback(() => {
+    if (!chatId || !socketRef.current) return;
+    const socket = socketRef.current;
+
+    if (socket.connected) {
+      doJoin(socket, chatId).catch((err) =>
+        console.error("[voice] No se pudo unir a la llamada:", err)
+      );
+      return;
+    }
+
+    // Socket still connecting — retry for up to 3 s, same pattern as sendChatMessage
+    console.warn("[voice] joinVoice queued: STOMP not yet connected, retrying…");
+    const interval = setInterval(() => {
+      if (socket.connected) {
+        clearInterval(interval);
+        doJoin(socket, chatId).catch((err) =>
+          console.error("[voice] No se pudo unir a la llamada:", err)
+        );
+      }
+    }, 100);
+    setTimeout(() => clearInterval(interval), 3000);
+  }, [chatId, doJoin]);
+
+  const leaveCall = useCallback(() => {
+    if (!chatId || !socketRef.current) return;
+    socketRef.current.leaveVoice(chatId);
+    voiceCall.stop(); // cierra peers y libera el micrófono
+    setInCall(false);
+  }, [chatId]);
+
+  // Mantener refs al día para el cleanup del socket
+  inCallRef.current = inCall;
+  chatIdRef.current = chatId;
+  voiceSignalRef.current = (signal) => { voiceCall.handleSignal(signal, userId ?? null); };
 
   return (
     <SafeAreaView style={styles.root}>
@@ -165,20 +340,6 @@ export default function ParcheScreen() {
 
         {/* ── Tab Row ── */}
         <View style={styles.tabRow}>
-          <Pressable
-            style={[styles.tabButton, activeTab === "anuncios" && styles.tabButtonActive]}
-            onPress={() => setActiveTab("anuncios")}
-          >
-            <Ionicons
-              name="megaphone-outline"
-              size={14}
-              color={activeTab === "anuncios" ? "rgba(129, 140, 248, 1)" : "rgba(90, 90, 104, 1)"}
-            />
-            <Text style={[styles.tabText, activeTab === "anuncios" && styles.tabTextActive]}>
-              anuncios
-            </Text>
-          </Pressable>
-
           <Pressable
             style={[styles.tabButton, activeTab === "general" && styles.tabButtonActive]}
             onPress={() => setActiveTab("general")}
@@ -216,12 +377,40 @@ export default function ParcheScreen() {
               juegos
             </Text>
           </Pressable>
+
+          <Pressable
+            style={[styles.tabButton, activeTab === "llamada" && styles.tabButtonActive]}
+            onPress={() => setActiveTab("llamada")}
+          >
+            <Ionicons
+              name="call-outline"
+              size={14}
+              color={activeTab === "llamada" ? "rgba(129, 140, 248, 1)" : "rgba(90, 90, 104, 1)"}
+            />
+            <Text style={[styles.tabText, activeTab === "llamada" && styles.tabTextActive]}>
+              llamada
+            </Text>
+            {(voiceParticipants.length + (inCall ? 1 : 0)) > 0 && (
+              <View style={styles.tabBadge}>
+                <Text style={styles.tabBadgeText}>{voiceParticipants.length + (inCall ? 1 : 0)}</Text>
+              </View>
+            )}
+          </Pressable>
         </View>
       </View>
 
       {/* ── Content Area ── */}
       {activeTab === "juegos" ? (
         <GamesView parcheId={parcheId} />
+      ) : activeTab === "llamada" ? (
+        <CallView
+          chatId={chatId}
+          inCall={inCall}
+          participants={voiceParticipants}
+          myUserId={userId}
+          onJoin={joinCall}
+          onLeave={leaveCall}
+        />
       ) : (
         <ChatView activeTab={activeTab} chatId={chatId} loadingParche={loadingParche} rtMessages={rtMessages} onSend={sendChatMessage} />
       )}
@@ -274,7 +463,7 @@ export default function ParcheScreen() {
 }
 
 function ChatView({
-  activeTab = "anuncios",
+  activeTab = "general",
   chatId,
   loadingParche,
   rtMessages,
@@ -299,11 +488,6 @@ function ChatView({
   const [loadingMessages, setLoadingMessages] = useState(true);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Recording State
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-
   // ── Load message history from the REST API ──
   useEffect(() => {
     if (!chatId) {
@@ -319,7 +503,7 @@ function ChatView({
         if (cancelled) return;
         // Backend returns newest-first for page 0; reverse to chronological order.
         const mapped = [...(page.content || [])].reverse().map((m) => {
-          const senderName = m.senderName || "Usuario";
+          const senderName = m.senderUsername || m.senderName || "Usuario";
           const initials = senderName
             .split(" ")
             .map((w) => w[0])
@@ -327,13 +511,13 @@ function ChatView({
             .join("")
             .toUpperCase();
           return {
-            id: m.id,
+            id: m.messageId || m.id || Math.random().toString(),
             sender: senderName,
             initials,
             text: m.content,
-            time: new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            time: formatMessageTime(m.sentAt || m.timestamp),
             isMe: m.senderId === userId,
-            image: m.type === "IMAGE" ? m.fileUrl : undefined,
+            image: m.type === "IMAGE" ? (m.fileUrl ?? undefined) : undefined,
             audioDuration: m.type === "AUDIO" && m.duration ? formatAudioDuration(m.duration) : undefined,
           };
         });
@@ -354,8 +538,8 @@ function ChatView({
     [historicalMessages, rtMessages, historicalIds],
   );
 
-  // Local-only UI messages (voice notes, file attachments, camera — not yet wired to backend).
-  const [localMessages, setLocalMessages] = useState<Array<{
+  // Local-only UI messages (not yet wired to backend — kept for future use).
+  const [localMessages] = useState<Array<{
     id: string; sender: string; initials: string; text: string;
     time: string; isMe: boolean; image?: string; fileType?: string; audioDuration?: string;
   }>>([]);
@@ -377,123 +561,6 @@ function ChatView({
     }, 100);
   };
 
-  const startRecording = () => {
-    setIsRecording(true);
-    setRecordingSeconds(0);
-    recordingTimer.current = setInterval(() => {
-      setRecordingSeconds((s) => s + 1);
-    }, 1000);
-  };
-
-  const stopRecording = (send: boolean) => {
-    if (recordingTimer.current) {
-      clearInterval(recordingTimer.current);
-      recordingTimer.current = null;
-    }
-    setIsRecording(false);
-    if (send && recordingSeconds > 0) {
-      const duration = formatAudioDuration(recordingSeconds);
-      const newMsg = {
-        id: Math.random().toString(),
-        sender: "Tú",
-        initials: "TÚ",
-        text: `Nota de voz (${duration})`,
-        audioDuration: duration,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isMe: true,
-      };
-      setLocalMessages((prev) => [...prev, newMsg]);
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-    }
-  };
-
-  const handleAttachFile = () => {
-    Alert.alert(
-      "Compartir archivo",
-      "Selecciona un archivo para enviar al parche:",
-      [
-        {
-          text: "📄 Apuntes_Calculo_III.pdf",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Apuntes_Calculo_III.pdf",
-              fileType: "pdf",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setLocalMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "📊 Taller_1_Matrices.zip",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Taller_1_Matrices.zip",
-              fileType: "zip",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setLocalMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "Cancelar",
-          style: "cancel"
-        }
-      ]
-    );
-  };
-
-  const handleCamera = () => {
-    Alert.alert(
-      "Compartir foto",
-      "Selecciona una opción:",
-      [
-        {
-          text: "📸 Tomar foto",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Foto tomada en el campus",
-              image: "https://picsum.photos/id/1018/600/400",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setLocalMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "🖼️ Elegir de galería",
-          onPress: () => {
-            const newMsg = {
-              id: Math.random().toString(),
-              sender: "Tú",
-              initials: "TÚ",
-              text: "Meme_parcial.jpg",
-              image: "https://picsum.photos/id/1025/600/400",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isMe: true,
-            };
-            setLocalMessages((prev) => [...prev, newMsg]);
-          }
-        },
-        {
-          text: "Cancelar",
-          style: "cancel"
-        }
-      ]
-    );
-  };
 
   return (
     <KeyboardAvoidingView
@@ -521,8 +588,8 @@ function ChatView({
               <Text style={[styles.chatLoadingText, { fontSize: 12 }]}>¡Sé el primero en escribir!</Text>
             </View>
           ) : (
-            allMessages.map((msg) => (
-              <View key={msg.id} style={[styles.messageRow, msg.isMe && styles.messageRowMe]}>
+            allMessages.map((msg, idx) => (
+              <View key={`${msg.id}-${idx}`} style={[styles.messageRow, msg.isMe && styles.messageRowMe]}>
                 {!msg.isMe && (
                   <View style={styles.messageAvatarBox}>
                     <View style={styles.messageAvatar}>
@@ -578,50 +645,19 @@ function ChatView({
         {/* ── Chat Input ── */}
         <View style={styles.chatInputContainer}>
           <View style={styles.chatInputWrap}>
-            {isRecording ? (
-              <>
-                <Pressable style={styles.chatCancelBtn} onPress={() => stopRecording(false)}>
-                  <Ionicons name="trash-outline" size={22} color="rgba(248, 113, 113, 1)" />
-                </Pressable>
-                <View style={styles.recordingIndicator}>
-                  <View style={styles.recordingDot} />
-                  <Text style={styles.recordingText}>Grabando audio ({recordingSeconds}s)...</Text>
-                </View>
-                <Pressable style={[styles.chatSendBtn, { backgroundColor: "rgba(35, 165, 89, 1)" }]} onPress={() => stopRecording(true)}>
-                  <Ionicons name="send" size={18} color="white" />
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <Pressable style={styles.chatAttachBtn} onPress={handleAttachFile}>
-                  <Ionicons name="add" size={24} color="rgba(255, 255, 255, 0.6)" />
-                </Pressable>
-                <TextInput
-                  style={styles.chatInput}
-                  placeholder={`Escribe algo en #${activeTab}…`}
-                  placeholderTextColor="rgba(90, 90, 104, 1)"
-                  value={text}
-                  onChangeText={setText}
-                  onSubmitEditing={handleSend}
-                  returnKeyType="send"
-                />
-                <View style={styles.chatInputActions}>
-                  {text.trim().length > 0 ? (
-                    <Pressable style={styles.chatSendBtn} onPress={handleSend}>
-                      <Ionicons name="send" size={18} color="white" />
-                    </Pressable>
-                  ) : (
-                    <>
-                      <Pressable style={styles.chatIconBtn} onPress={handleCamera}>
-                        <Ionicons name="camera-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                      </Pressable>
-                      <Pressable style={styles.chatIconBtn} onPress={startRecording}>
-                        <Ionicons name="mic-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                      </Pressable>
-                    </>
-                  )}
-                </View>
-              </>
+            <TextInput
+              style={styles.chatInput}
+              placeholder={`Escribe algo en #${activeTab}…`}
+              placeholderTextColor="rgba(90, 90, 104, 1)"
+              value={text}
+              onChangeText={setText}
+              onSubmitEditing={handleSend}
+              returnKeyType="send"
+            />
+            {text.trim().length > 0 && (
+              <Pressable style={styles.chatSendBtn} onPress={handleSend}>
+                <Ionicons name="send" size={18} color="white" />
+              </Pressable>
             )}
           </View>
         </View>
@@ -630,11 +666,156 @@ function ChatView({
   );
 }
 
+function CallView({
+  chatId,
+  inCall,
+  participants,
+  myUserId,
+  onJoin,
+  onLeave,
+}: {
+  chatId: string | null;
+  inCall: boolean;
+  participants: Array<{ userId: string; username: string }>;
+  myUserId?: string | null;
+  onJoin: () => void;
+  onLeave: () => void;
+}) {
+  const [joining, setJoining] = useState(false);
+  const [micActive, setMicActive] = useState(true);
+  const [callSeconds, setCallSeconds] = useState(0);
+
+  // El JOIN propio llega como eco del servidor → inCall pasa a true y dejamos de "conectar"
+  useEffect(() => {
+    if (inCall) setJoining(false);
+  }, [inCall]);
+
+  // Timer de duración mientras estamos en la llamada
+  useEffect(() => {
+    if (!inCall) {
+      setCallSeconds(0);
+      return;
+    }
+    const interval = setInterval(() => setCallSeconds((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [inCall]);
+
+  const formatTimer = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const handleJoin = () => {
+    if (!chatId) return;
+    setJoining(true);
+    onJoin();
+    // Si en 5 s el servidor no confirmó el JOIN, liberamos el botón
+    setTimeout(() => setJoining(false), 5000);
+  };
+
+  const initialsOf = (name: string) =>
+    name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "U";
+
+  // "participants" son los demás (el propio JOIN se filtra, como en el front web);
+  // cuando estamos en la llamada nos mostramos primero.
+  const displayed = inCall
+    ? [{ userId: myUserId ?? "me", username: "Tú" }, ...participants]
+    : participants;
+
+  if (!chatId) {
+    return (
+      <View style={styles.callRoot}>
+        <ActivityIndicator color="rgba(129, 140, 248, 1)" />
+        <Text style={styles.callEmptyText}>Cargando canal de voz…</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.callRoot}>
+      {/* Estado de la sala */}
+      <View style={styles.callStatusRow}>
+        <View style={[styles.callStatusDot, displayed.length > 0 && styles.callStatusDotActive]} />
+        <Text style={styles.callStatusText}>
+          {displayed.length === 0
+            ? "Nadie está en la llamada"
+            : `${displayed.length} en llamada`}
+        </Text>
+        {inCall && <Text style={styles.callTimerText}>{formatTimer(callSeconds)}</Text>}
+      </View>
+
+      {/* Participantes */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.callParticipantsGrid}>
+        {displayed.length === 0 ? (
+          <View style={styles.callEmptyState}>
+            <Ionicons name="mic-off-outline" size={40} color="rgba(90, 90, 104, 1)" />
+            <Text style={styles.callEmptyText}>
+              El canal de voz está vacío.{"\n"}Únete para empezar la llamada.
+            </Text>
+          </View>
+        ) : (
+          displayed.map((p) => (
+            <View key={p.userId} style={styles.callParticipant}>
+              <View style={[styles.callAvatar, p.userId === myUserId && styles.callAvatarMe]}>
+                <Text style={styles.callAvatarText}>{p.username === "Tú" ? "TÚ" : initialsOf(p.username)}</Text>
+              </View>
+              <Text style={styles.callParticipantName} numberOfLines={1}>{p.username}</Text>
+            </View>
+          ))
+        )}
+      </ScrollView>
+
+      {/* Controles */}
+      <View style={styles.callControls}>
+        {inCall ? (
+          <>
+            <Pressable
+              style={[styles.callControlButton, micActive && styles.callControlButtonActive]}
+              onPress={() => {
+                setMicActive((m) => {
+                  voiceCall.setMuted(m); // si estaba activo, ahora se silencia
+                  return !m;
+                });
+              }}
+            >
+              <Ionicons
+                name={micActive ? "mic" : "mic-off-outline"}
+                size={22}
+                color={micActive ? "rgba(129, 140, 248, 1)" : "rgba(255, 255, 255, 0.8)"}
+              />
+            </Pressable>
+            <Pressable style={styles.callLeaveButton} onPress={onLeave}>
+              <Ionicons name="call" size={24} color="white" style={{ transform: [{ rotate: "135deg" }] }} />
+              <Text style={styles.callLeaveText}>Salir</Text>
+            </Pressable>
+          </>
+        ) : (
+          <Pressable
+            style={[styles.callJoinButton, joining && styles.callJoinButtonDisabled]}
+            onPress={handleJoin}
+            disabled={joining}
+          >
+            {joining ? (
+              <ActivityIndicator color="white" size="small" />
+            ) : (
+              <Ionicons name="call" size={22} color="white" />
+            )}
+            <Text style={styles.callJoinText}>
+              {joining ? "Conectando…" : "Unirse a la llamada"}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
 function GamesView({ parcheId }: { parcheId?: string }) {
   const { userId } = useAuth();
   const [activeTool, setActiveTool] = useState<string>("pen");
   const [activeColor, setActiveColor] = useState<string>("rgba(241, 245, 249, 1)");
-  const [activeGame, setActiveGame] = useState<"list" | "lienzo" | "parques">("list");
+  const [activeGame, setActiveGame] = useState<"list" | "lienzo">("list");
 
   const canvasId = parcheId ?? null;
   const {
@@ -647,6 +828,7 @@ function GamesView({ parcheId }: { parcheId?: string }) {
   // Drawing state
   const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
   const [localPaths, setLocalPaths] = useState<Array<{ d: string; color: string; size: number }>>([]);
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   const activeColorRef = useRef(activeColor);
   const activeToolRef = useRef(activeTool);
@@ -687,7 +869,7 @@ function GamesView({ parcheId }: { parcheId?: string }) {
           const color = isEraser ? "rgba(15, 20, 40, 1)" : activeColorRef.current;
           const width = isEraser ? 22 : 4;
           const stroke: Stroke = {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            id: Crypto.randomUUID(),
             color,
             width,
             points: pts,
@@ -780,8 +962,21 @@ function GamesView({ parcheId }: { parcheId?: string }) {
           <View style={[styles.lienzoBrushSize, { backgroundColor: activeColor }]} />
         </View>
         {/* Canvas area */}
-        <View style={styles.lienzoCanvas} {...panResponder.panHandlers}>
-          <Svg style={StyleSheet.absoluteFill}>
+        <View
+          style={styles.lienzoCanvas}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            setCanvasSize((prev) =>
+              prev.width === width && prev.height === height ? prev : { width, height }
+            );
+          }}
+          {...panResponder.panHandlers}
+        >
+          <Svg
+            style={StyleSheet.absoluteFill}
+            width={canvasSize.width || "100%"}
+            height={canvasSize.height || "100%"}
+          >
             {allPaths.map((p, idx) => (
               <Path
                 key={idx}
@@ -808,20 +1003,6 @@ function GamesView({ parcheId }: { parcheId?: string }) {
             <Text style={styles.lienzoCanvasHint}>Dibuja aquí con tu parche 🎨</Text>
           )}
         </View>
-      </View>
-    );
-  }
-
-  if (activeGame === "parques") {
-    return (
-      <View style={styles.gameFullView}>
-        <View style={styles.parquesHeader}>
-          <Pressable style={styles.parquesBackBtn} onPress={() => setActiveGame("list")}>
-            <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.8)" />
-          </Pressable>
-          <Text style={styles.parquesHeaderTitle}>Parqués</Text>
-        </View>
-        <ParquesBoard />
       </View>
     );
   }
@@ -854,31 +1035,6 @@ function GamesView({ parcheId }: { parcheId?: string }) {
           </View>
           <View style={styles.gamePlayBtn}>
             <Text style={styles.gamePlayBtnText}>Jugar →</Text>
-          </View>
-        </View>
-      </Pressable>
-
-      {/* Parqués Game Card */}
-      <Pressable style={styles.gameCardParques} onPress={() => setActiveGame("parques")}>
-        <View style={styles.gameCardInnerBorderParques}>
-          <View style={styles.gameIconRowParques}>
-            <View style={styles.parquesBoardSmall}>
-              <View style={styles.parquesRow}>
-                <View style={[styles.parquesSquare, { backgroundColor: "rgba(59, 91, 219, 0.5)" }]} />
-                <View style={[styles.parquesSquare, { backgroundColor: "rgba(242, 63, 67, 0.5)" }]} />
-              </View>
-              <View style={styles.parquesRow}>
-                <View style={[styles.parquesSquare, { backgroundColor: "rgba(35, 165, 89, 0.5)" }]} />
-                <View style={[styles.parquesSquare, { backgroundColor: "rgba(240, 178, 50, 0.5)" }]} />
-              </View>
-            </View>
-          </View>
-          <View style={styles.gameInfo}>
-            <Text style={[styles.gameTitle, { color: "rgba(251, 191, 36, 1)" }]}>Parqués</Text>
-            <Text style={styles.gameDesc}>El clásico colombiano con tu parche 🎲</Text>
-          </View>
-          <View style={[styles.gamePlayBtn, { borderColor: "rgba(251, 191, 36, 0.4)", backgroundColor: "rgba(251, 191, 36, 0.1)" }]}>
-            <Text style={[styles.gamePlayBtnText, { color: "rgba(251, 191, 36, 1)" }]}>Jugar →</Text>
           </View>
         </View>
       </Pressable>
@@ -1251,6 +1407,155 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: "rgba(129, 140, 248, 1)",
   },
+  tabBadge: {
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: "rgba(34, 197, 94, 0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  tabBadgeText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+
+  // ── Call View ──
+  callRoot: {
+    flex: 1,
+    paddingTop: 20,
+  },
+  callStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  callStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(90, 90, 104, 1)",
+  },
+  callStatusDotActive: {
+    backgroundColor: "rgba(34, 197, 94, 1)",
+  },
+  callStatusText: {
+    color: "rgba(255, 255, 255, 0.6)",
+    fontSize: 13,
+    fontWeight: "500",
+    flex: 1,
+  },
+  callTimerText: {
+    color: "rgba(129, 140, 248, 1)",
+    fontSize: 13,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
+  },
+  callParticipantsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 20,
+    padding: 20,
+    flexGrow: 1,
+  },
+  callEmptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+  },
+  callEmptyText: {
+    color: "rgba(90, 90, 104, 1)",
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  callParticipant: {
+    alignItems: "center",
+    gap: 8,
+    width: 72,
+  },
+  callAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(99, 102, 241, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "rgba(99, 102, 241, 0.35)",
+  },
+  callAvatarMe: {
+    borderColor: "rgba(34, 197, 94, 0.8)",
+  },
+  callAvatarText: {
+    color: "rgba(255, 255, 255, 1)",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  callParticipantName: {
+    color: "rgba(255, 255, 255, 0.75)",
+    fontSize: 12,
+    fontWeight: "500",
+    maxWidth: 72,
+  },
+  callControls: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 16,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+  },
+  callControlButton: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+  },
+  callControlButtonActive: {
+    borderColor: "rgba(99, 102, 241, 0.3)",
+    backgroundColor: "rgba(99, 102, 241, 0.15)",
+  },
+  callJoinButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(34, 197, 94, 1)",
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 27,
+  },
+  callJoinButtonDisabled: {
+    opacity: 0.6,
+  },
+  callJoinText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  callLeaveButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(242, 63, 67, 1)",
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 27,
+  },
+  callLeaveText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "700",
+  },
 
   // ── Placeholders ──
   placeholderView: {
@@ -1560,37 +1865,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
-  gameCardParques: {
-    height: 160,
-    borderRadius: 22,
-  },
-  gameCardInnerBorderParques: {
-    flex: 1,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "rgba(251, 191, 36, 0.2)",
-    padding: 16,
-    justifyContent: "space-between",
-  },
-  gameIconRowParques: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  parquesBoard: {
-    width: 66,
-    height: 66,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    overflow: "hidden",
-  },
-  parquesRow: {
-    flexDirection: "row",
-  },
-  parquesSquare: {
-    width: 32,
-    height: 32,
-  },
   gamePlayBtn: {
     alignSelf: "flex-start",
     borderWidth: 1,
@@ -1615,14 +1889,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(99, 102, 241, 0.3)",
     justifyContent: "center",
     alignItems: "center",
-  },
-  parquesBoardSmall: {
-    width: 66,
-    height: 66,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    overflow: "hidden",
   },
   // Lienzo full view
   gameFullView: {
@@ -1744,79 +2010,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     textAlign: "center",
-  },
-  // Parqués full view
-  parquesHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.06)",
-    gap: 10,
-  },
-  parquesBackBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  parquesHeaderTitle: {
-    color: "rgba(255, 255, 255, 1)",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  parquesBoardFull: {
-    margin: 20,
-    borderRadius: 20,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.07)",
-    backgroundColor: "rgba(14, 17, 35, 1)",
-  },
-  parquesQuadRow: {
-    flexDirection: "row",
-  },
-  parquesQuad: {
-    flex: 1,
-    height: 140,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-  },
-  parquesQuadEmoji: {
-    fontSize: 32,
-  },
-  parquesQuadLabel: {
-    color: "rgba(255, 255, 255, 0.7)",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  parquesCenter: {
-    width: 80,
-    height: 140,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-  },
-  parquesCenterBottom: {
-    width: 80,
-    height: 140,
-    backgroundColor: "rgba(255, 255, 255, 0.02)",
-  },
-  parquesCenterEmoji: {
-    fontSize: 36,
-  },
-  parquesComingSoon: {
-    color: "rgba(90, 90, 104, 1)",
-    fontSize: 11,
-    textAlign: "center",
-    marginTop: 16,
-    paddingHorizontal: 24,
   },
   moreGamesText: {
     color: "rgba(90, 90, 104, 1)",

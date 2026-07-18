@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
 import { GlassNavBar } from "@/components/glass-nav-bar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useTranslation } from "@/hooks/useTranslation";
 import { parcheService } from "@/services/parcheService";
 import { useAuth } from "@/hooks/useAuth";
@@ -291,15 +292,17 @@ export default function HomeScreen() {
                 {"\n"}{userName || "Usuario"}
               </Text>
             </View>
-            <Pressable style={styles.bigAvatarWrap} onPress={() => router.push("/profile")}>
-              <View style={styles.bigAvatar}>
-                <Text style={styles.bigAvatarText}>You</Text>
-              </View>
-              {/* Online indicator on avatar */}
+            <View style={styles.bigAvatarWrap}>
+              <UserAvatar
+                size={56}
+                style={styles.bigAvatar}
+                onPress={() => router.push("/profile")}
+              />
+              {/* Online indicator */}
               <View style={styles.bigAvatarOnline}>
                 <View style={styles.bigAvatarOnlineDot} />
               </View>
-            </Pressable>
+            </View>
           </View>
 
           {/* Date & subtitle */}

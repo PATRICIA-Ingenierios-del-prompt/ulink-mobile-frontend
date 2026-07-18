@@ -67,7 +67,22 @@ export const tokenManager = {
       const name: string | undefined =
         payload.name ??
         [payload.given_name, payload.family_name].filter(Boolean).join(" ");
-      return name || null;
+      if (name) return name;
+
+      // Derive from ECI institutional email: karol.estupinan-v@mail... → "Karol Estupinan"
+      const email: string | undefined = payload.email ?? payload.preferred_username;
+      if (email) {
+        const local = email.split("@")[0];
+        const dot = local.indexOf(".");
+        if (dot !== -1) {
+          const firstName = local.slice(0, dot);
+          const lastName = local.slice(dot + 1).split("-")[0];
+          const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+          return cap(firstName) + " " + cap(lastName);
+        }
+      }
+
+      return null;
     } catch {
       return null;
     }

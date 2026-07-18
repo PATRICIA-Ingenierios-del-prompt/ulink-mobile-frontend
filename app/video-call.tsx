@@ -9,6 +9,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
+// Lazy-load RTCView (requires dev build, not Expo Go)
+let RTCView: any = null;
+try {
+  RTCView = require("react-native-webrtc").RTCView;
+} catch {
+  // Not available in Expo Go
+}
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -18,22 +25,18 @@ import Animated, {
   withTiming,
   interpolate,
 } from "react-native-reanimated";
-import { CameraView } from "expo-camera";
 import { useWebRTC } from "@/hooks/useWebRTC";
+import { getChatSocket, VoiceSignalPayload } from "@/services/chatSocket";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatTimer(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
-
-// ─── Control Button ───────────────────────────────────────────────────────────
 
 interface ControlBtnProps {
   icon: keyof typeof Ionicons.glyphMap;
@@ -130,8 +133,6 @@ function ControlButton({
   );
 }
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
-
 export default function VideoCallScreen() {
   const router = useRouter();
 
@@ -143,8 +144,7 @@ export default function VideoCallScreen() {
   const [showControls, setShowControls] = useState(true);
   const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { userId, name, initials } = useLocalSearchParams();
-  const calleeId = userId as string;
+  const { chatId, name, initials } = useLocalSearchParams();
 
   const {
     localStream,
@@ -154,25 +154,38 @@ export default function VideoCallScreen() {
     endCall,
     toggleMic,
     toggleCamera,
-  } = useWebRTC(calleeId);
+    handleIncomingSignal,
+    error,
+  } = useWebRTC(chatId as string);
+
+  // Wire up voice signal listener
+  useEffect(() => {
+    const onVoiceSignal = (signal: VoiceSignalPayload) => {
+      if (signal.signalType === "OFFER" || signal.signalType === "ANSWER" || signal.signalType === "ICE_CANDIDATE") {
+        handleIncomingSignal(signal);
+      }
+    };
+
+    destroyChatSocketSafe();
+    const socket = getChatSocket({ onVoiceSignal });
+    if (!socket.connected) {
+      socket.activate();
+    }
+  }, [handleIncomingSignal]);
 
   useEffect(() => {
-    // Automatically start the call when screen mounts
+    if (!chatId) return;
     startCall(true);
     return () => {
       endCall();
     };
-  }, [startCall, endCall]);
+  }, [chatId, startCall, endCall]);
 
   useEffect(() => {
     if (isConnecting) return;
     const interval = setInterval(() => setCallSeconds((s) => s + 1), 1000);
     return () => clearInterval(interval);
   }, [isConnecting]);
-
-  useEffect(() => {
-    // isConnecting is handled by useWebRTC now
-  }, []);
 
   const resetControlsTimer = () => {
     setShowControls(true);
@@ -231,19 +244,43 @@ export default function VideoCallScreen() {
     opacity: interpolate(headerY.value, [-60, 0], [0, 1]),
   }));
 
+  // Mirror the local camera if using front camera
+  const localMirrored = isFrontCamera;
+
+  // Error fallback when WebRTC native module is not available
+  if (error) {
+    return (
+      <View style={styles.root}>
+        <View style={styles.remoteVideo}>
+          <View style={styles.remoteGradientLayer1} />
+          <View style={styles.remoteGradientLayer2} />
+        </View>
+        <View style={styles.remoteVideoPlaceholder}>
+          <View style={styles.remoteAvatar}>
+            <Text style={styles.remoteAvatarText}>📹</Text>
+          </View>
+          <Text style={{ color: "rgba(248, 113, 113, 1)", marginTop: 16, fontSize: 14, textAlign: "center", paddingHorizontal: 40 }}>{error}</Text>
+          <Pressable style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.1)", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }} onPress={() => router.back()}>
+            <Text style={{ color: "white", fontSize: 14, fontWeight: "600" }}>Volver</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root}>
-      {/* Remote Video placeholder */}
+      {/* Remote Video */}
       <View style={styles.remoteVideo}>
         <View style={styles.remoteGradientLayer1} />
         <View style={styles.remoteGradientLayer2} />
         {remoteStream ? (
-          <View style={styles.remoteVideoPlaceholder}>
-            <View style={styles.remoteAvatar}>
-              <Text style={styles.remoteAvatarText}>{initials || "U"}</Text>
-            </View>
-            <Text style={{color: "white", marginTop: 10}}>Conectado</Text>
-          </View>
+          <RTCView
+            streamURL={remoteStream.toURL()}
+            style={StyleSheet.absoluteFillObject}
+            objectFit="cover"
+            mirror={false}
+          />
         ) : (
           <View style={styles.remoteVideoPlaceholder}>
             <View style={styles.remoteAvatar}>
@@ -257,11 +294,11 @@ export default function VideoCallScreen() {
       <Animated.View style={[styles.headerOverlay, headerAnimatedStyle]}>
         <SafeAreaView style={{ flex: 0 }} edges={["top"]}>
           <View style={styles.headerContent}>
-            <Pressable style={styles.minimizeBtn} onPress={() => router.back()}>
+            <Pressable style={styles.minimizeBtn} onPress={() => { endCall(); router.back(); }}>
               <Ionicons name="chevron-down" size={24} color="rgba(255, 255, 255, 0.7)" />
             </Pressable>
             <View style={styles.headerCenter}>
-              <Text style={styles.callerName}>{name || "Usuario"}</Text>
+              <Text style={styles.callerName}>{name || "Parche"}</Text>
               <View style={styles.statusRow}>
                 {isConnecting ? (
                   <>
@@ -295,17 +332,17 @@ export default function VideoCallScreen() {
       {/* Local Preview */}
       <Animated.View style={[styles.localPreview, { opacity: interpolate(controlsY.value, [0, 120], [1, 0.3]) }]}>
         <View style={styles.localPreviewInner}>
-          {isCameraOn ? (
-            localStream ? (
-              <CameraView
-                style={StyleSheet.absoluteFillObject}
-                facing={isFrontCamera ? "front" : "back"}
-              />
-            ) : (
-              <View style={styles.localVideoActive}>
-                <Text style={styles.localPreviewText}>TÚ</Text>
-              </View>
-            )
+          {isCameraOn && localStream ? (
+            <RTCView
+              streamURL={localStream.toURL()}
+              style={StyleSheet.absoluteFillObject}
+              objectFit="cover"
+              mirror={localMirrored}
+            />
+          ) : isCameraOn ? (
+            <View style={styles.localVideoActive}>
+              <Text style={styles.localPreviewText}>TÚ</Text>
+            </View>
           ) : (
             <View style={styles.localVideoOff}>
               <Ionicons name="videocam-off" size={18} color="rgba(255, 255, 255, 0.4)" />
@@ -321,11 +358,11 @@ export default function VideoCallScreen() {
           <View style={styles.connectingCard}>
             <View style={styles.connectingAvatarWrap}>
               <View style={styles.connectingAvatar}>
-                <Text style={styles.connectingAvatarText}>SV</Text>
+                <Text style={styles.connectingAvatarText}>{initials || "U"}</Text>
               </View>
               <Animated.View style={[styles.connectingRing, pulseStyle]} />
             </View>
-            <Text style={styles.connectingName}>{name || "Usuario"}</Text>
+            <Text style={styles.connectingName}>{name || "Parche"}</Text>
             <Text style={styles.connectingSub}>Llamada de video...</Text>
           </View>
         </View>
@@ -385,7 +422,14 @@ export default function VideoCallScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+function destroyChatSocketSafe() {
+  try {
+    const { destroyChatSocket } = require("@/services/chatSocket");
+    destroyChatSocket();
+  } catch {
+    // ignore
+  }
+}
 
 const styles = StyleSheet.create({
   root: {

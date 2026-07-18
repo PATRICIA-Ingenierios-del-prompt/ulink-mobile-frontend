@@ -18,6 +18,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { communicationService, type ChatMessage } from "@/services/communicationService";
 import { useAuth } from "@/hooks/useAuth";
 import { getChatSocket, type ChatMessage as WsChatMessage } from "@/services/chatSocket";
+import { formatMessageTime } from "@/lib/formatMessageTime";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Audio } from "expo-av";
@@ -60,27 +61,51 @@ export default function ChatScreen() {
     if (!chatId || !userId) return;
     const socket = getChatSocket();
 
-    socket.activate();
+    // Only activate if not already active — the singleton may already be running
+    // from another screen (e.g. parche.tsx). Calling activate() on an already-
+    // connected client is a no-op, so this is safe.
+    if (!socket.connected) {
+      socket.activate();
+    }
 
-    const unsub = socket.subscribeToParche(chatId, {
-      onMessage: (msg: WsChatMessage) => {
-        const mapped: Message = {
-          id: msg.id,
-          sender: msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario"),
-          text: msg.content,
-          time: new Date(msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          isMe: msg.senderId === userId,
-          image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
-        };
-        setMessages((prev) => [...prev, mapped]);
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-      },
-    });
+    let unsub: () => void = () => {};
 
-    return () => {
-      unsub();
-      socket.deactivate();
+    const doSubscribe = () => {
+      unsub = socket.subscribeToParche(chatId, {
+        onMessage: (msg: WsChatMessage) => {
+          const mapped: Message = {
+            id: msg.id,
+            sender: msg.senderId === userId ? "Tú" : (msg.senderUsername || "Usuario"),
+            text: msg.content,
+            time: formatMessageTime(msg.sentAt),
+            isMe: msg.senderId === userId,
+            image: msg.type === "IMAGE" ? (msg.fileUrl ?? undefined) : undefined,
+          };
+          setMessages((prev) => [...prev, mapped]);
+          setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+        },
+      });
     };
+
+    if (socket.connected) {
+      doSubscribe();
+    } else {
+      // Poll until STOMP handshake completes (typically <1 s)
+      const interval = setInterval(() => {
+        if (socket.connected) {
+          clearInterval(interval);
+          doSubscribe();
+        }
+      }, 100);
+      return () => {
+        clearInterval(interval);
+        unsub();
+      };
+    }
+
+    return () => unsub();
+    // NOTE: we intentionally do NOT deactivate the socket here.
+    // The singleton lifecycle is managed at a higher level (app root or parche screen).
   }, [chatId, userId]);
 
   const loadMessages = async () => {
@@ -91,12 +116,12 @@ export default function ChatScreen() {
         : await communicationService.getMessages(chatId, 0, 50);
         
       const mapped: Message[] = (data.content || []).map((m) => ({
-        id: m.id,
-        sender: m.senderName || "Usuario",
+        id: m.messageId || m.id || Math.random().toString(),
+        sender: m.senderUsername || m.senderName || "Usuario",
         text: m.content,
-        time: new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        time: formatMessageTime(m.sentAt || m.timestamp),
         isMe: m.senderId === userId,
-        image: m.type === "IMAGE" ? m.fileUrl : undefined,
+        image: m.type === "IMAGE" ? (m.fileUrl ?? undefined) : undefined,
         audioDuration: m.type === "AUDIO" && m.duration ? formatDuration(m.duration) : undefined,
       }));
       setMessages(mapped);
@@ -115,22 +140,37 @@ export default function ChatScreen() {
   };
 
   const handleSend = useCallback(() => {
-    if (text.trim().length === 0) return;
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return;
+    setText("");
     const socket = getChatSocket();
+
     if (socket.connected) {
-      socket.sendMessage(chatId, text.trim());
-      setText("");
+      socket.sendMessage(chatId, trimmed);
     } else {
-      // Fallback: add locally if WS is down
-      const newMsg: Message = {
-        id: Math.random().toString(),
-        sender: "Tú",
-        text: text.trim(),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isMe: true,
-      };
-      setMessages((prev) => [...prev, newMsg]);
-      setText("");
+      // Socket still connecting — retry once it comes up (within ~2 s)
+      const interval = setInterval(() => {
+        if (socket.connected) {
+          clearInterval(interval);
+          socket.sendMessage(chatId, trimmed);
+        }
+      }, 100);
+      // Give up after 2 s and show a local-only message so the user sees their text
+      setTimeout(() => {
+        clearInterval(interval);
+        if (!socket.connected) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Math.random().toString(),
+              sender: "Tú",
+              text: trimmed,
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isMe: true,
+            },
+          ]);
+        }
+      }, 2000);
     }
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [text, chatId]);
@@ -232,7 +272,7 @@ export default function ChatScreen() {
             const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
             if (permissionResult.granted === false) return;
             const result = await ImagePicker.launchCameraAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: "images",
               quality: 0.8,
             });
             if (!result.canceled) sendImageMessage(result.assets[0].uri);
@@ -244,7 +284,7 @@ export default function ChatScreen() {
             const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if (permissionResult.granted === false) return;
             const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: "images",
               quality: 0.8,
             });
             if (!result.canceled) sendImageMessage(result.assets[0].uri);
@@ -291,10 +331,10 @@ export default function ChatScreen() {
               <Text style={styles.parcheSubtitle}>En línea</Text>
             </Pressable>
             <View style={styles.headerActions}>
-              <Pressable style={styles.actionButton} onPress={() => router.push("/call")}>
+              <Pressable style={styles.actionButton} onPress={() => router.push({ pathname: "/call", params: { chatId: chatId, name: `Usuario ${(chatId || "").substring(0, 4)}`, initials: (chatId || "U").substring(0, 2).toUpperCase() } })}>
                 <Ionicons name="call" size={20} color="rgba(255, 255, 255, 0.6)" />
               </Pressable>
-              <Pressable style={styles.actionButton} onPress={() => router.push("/video-call")}>
+              <Pressable style={styles.actionButton} onPress={() => router.push({ pathname: "/video-call", params: { chatId: chatId, name: `Usuario ${(chatId || "").substring(0, 4)}`, initials: (chatId || "U").substring(0, 2).toUpperCase() } })}>
                 <Ionicons name="videocam" size={20} color="rgba(255, 255, 255, 0.6)" />
               </Pressable>
             </View>
@@ -371,48 +411,19 @@ export default function ChatScreen() {
           {/* ── Chat Input ── */}
           <View style={styles.chatInputContainer}>
             <View style={styles.chatInputWrap}>
-              {isRecording ? (
-                <>
-                  <Pressable style={styles.chatCancelBtn} onPress={() => stopRecording(false)}>
-                    <Ionicons name="trash-outline" size={22} color="rgba(248, 113, 113, 1)" />
-                  </Pressable>
-                  <View style={styles.recordingIndicator}>
-                    <View style={styles.recordingDot} />
-                    <Text style={styles.recordingText}>Grabando audio ({recordingSeconds}s)...</Text>
-                  </View>
-                  <Pressable style={[styles.chatSendBtn, { backgroundColor: "rgba(35, 165, 89, 1)" }]} onPress={() => stopRecording(true)}>
-                    <Ionicons name="send" size={18} color="white" />
-                  </Pressable>
-                </>
-              ) : (
-                <>
-                  <Pressable style={styles.chatAttachBtn} onPress={handleAttachFile}>
-                    <Ionicons name="add" size={24} color="rgba(255, 255, 255, 0.6)" />
-                  </Pressable>
-                  <TextInput
-                    style={styles.chatInput}
-                    placeholder="Mensaje..."
-                    placeholderTextColor="rgba(90, 90, 104, 1)"
-                    value={text}
-                    onChangeText={setText}
-                  />
-                  <View style={styles.chatInputActions}>
-                    {text.trim().length > 0 ? (
-                      <Pressable style={styles.chatSendBtn} onPress={handleSend}>
-                        <Ionicons name="send" size={18} color="white" />
-                      </Pressable>
-                    ) : (
-                      <>
-                        <Pressable style={styles.chatIconBtn} onPress={handleCamera}>
-                          <Ionicons name="camera-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                        </Pressable>
-                        <Pressable style={styles.chatIconBtn} onPress={startRecording}>
-                          <Ionicons name="mic-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                        </Pressable>
-                      </>
-                    )}
-                  </View>
-                </>
+              <TextInput
+                style={styles.chatInput}
+                placeholder="Mensaje..."
+                placeholderTextColor="rgba(90, 90, 104, 1)"
+                value={text}
+                onChangeText={setText}
+                onSubmitEditing={handleSend}
+                returnKeyType="send"
+              />
+              {text.trim().length > 0 && (
+                <Pressable style={styles.chatSendBtn} onPress={handleSend}>
+                  <Ionicons name="send" size={18} color="white" />
+                </Pressable>
               )}
             </View>
           </View>

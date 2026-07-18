@@ -2,11 +2,19 @@
  * Location MS — STOMP client for real-time geo tracking within events.
  * Native WebSocket STOMP. JWT rides as ?access_token= on the WS upgrade.
  *
- * CRITICAL: subscribe to /topic/geo/{eventId} BEFORE subscribing to
- * /user/queue/geo/{eventId}/snapshot to avoid a race condition where
- * the snapshot is sent before the subscription is ready.
+ * Backend contract (PATRICIA_Location_Backend):
+ *   SEND      /app/geo/{eventId}                     -> position update {latitude, longitude}
+ *   SUBSCRIBE /topic/geo/{eventId}                   -> live broadcasts; also triggers a
+ *                                                       one-shot snapshot seed for this session
+ *   RECEIVE   /user/queue/geo/{eventId}/snapshot     -> the seeded snapshot
+ *
+ * The snapshot is pushed by the server as a side effect of the SUBSCRIBE to the
+ * topic (StompSubscriptionEventListener) — there is no request destination.
+ * We therefore subscribe to the snapshot queue BEFORE subscribing to the topic
+ * so the session-scoped snapshot is never delivered before its listener exists.
  */
 
+import 'text-encoding';
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import { API_URL } from "../config/api";
 import { tokenManager } from "./tokenManager";
@@ -14,16 +22,16 @@ import { tokenManager } from "./tokenManager";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface GeoBroadcastMessage {
-  type: "POSITION" | "JOIN" | "LEAVE";
   userId: string;
-  username?: string;
   latitude: number;
   longitude: number;
-  timestamp: string;
+  /** ISO-8601 instant emitted by the backend (`recordedAt`). */
+  recordedAt: string;
 }
 
 export interface GeoSnapshotMessage {
-  users: GeoBroadcastMessage[];
+  eventId: string;
+  positions: GeoBroadcastMessage[];
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -54,6 +62,10 @@ export class GeoSocket {
         this.client.brokerURL = buildWsUrl(token);
         this.client.connectHeaders = { Authorization: `Bearer ${token}` };
       },
+      // React Native STOMP needs a TextEncoder polyfill (imported above) plus
+      // binary frames and NULL-terminator fixup, matching the working chat socket.
+      forceBinaryWSFrames: true,
+      appendMissingNULLonIncoming: true,
       reconnectDelay: 4000,
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
@@ -109,26 +121,12 @@ export class GeoSocket {
   }
 
   /**
-   * Internal: subscribe to broadcast + snapshot for a specific event.
-   * Order matters: broadcast subscription must be registered before
-   * requesting the snapshot so the snapshot is not missed.
+   * Internal: subscribe to snapshot + broadcast for a specific event.
+   * Order matters: the snapshot queue must be registered BEFORE the topic
+   * subscription that makes the server seed the snapshot, otherwise the
+   * session-scoped seed can arrive before its listener exists and be lost.
    */
   private _subscribeToEvent(eventId: string): void {
-    const broadcastSub = this.client.subscribe(
-      `/topic/geo/${eventId}`,
-      (message: IMessage) => {
-        if (message.body) {
-          this.opts.onGeoBroadcast?.(JSON.parse(message.body));
-        }
-      }
-    );
-
-    // Snapshot request after broadcast subscription is in place
-    this.client.publish({
-      destination: `/app/geo/${eventId}/snapshot`,
-      body: "{}",
-    });
-
     const snapshotSub = this.client.subscribe(
       `/user/queue/geo/${eventId}/snapshot`,
       (message: IMessage) => {
@@ -138,6 +136,16 @@ export class GeoSocket {
       }
     );
 
-    this.eventSubs.push(broadcastSub, snapshotSub);
+    // Subscribing to the topic triggers the server-side snapshot seed.
+    const broadcastSub = this.client.subscribe(
+      `/topic/geo/${eventId}`,
+      (message: IMessage) => {
+        if (message.body) {
+          this.opts.onGeoBroadcast?.(JSON.parse(message.body));
+        }
+      }
+    );
+
+    this.eventSubs.push(snapshotSub, broadcastSub);
   }
 }

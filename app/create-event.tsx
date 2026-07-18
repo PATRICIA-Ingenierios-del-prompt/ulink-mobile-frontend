@@ -3,48 +3,99 @@ import { View, Text, StyleSheet, TextInput, Pressable, ScrollView, Alert, Keyboa
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, Stack } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { eventService } from '@/services/eventService';
+import * as Location from 'expo-location';
+import { eventService, type CreateEventRequest, type LocationDto } from '@/services/eventService';
 
-const CATEGORIES = ['ACADEMIC', 'SOCIAL', 'WELLNESS', 'SPORT', 'CULTURAL'];
+// Backend `Category` enum (PATRICIA_Events_Backend).
+const CATEGORIES = ['SPORT', 'ENTERTAINMENT', 'MUSIC', 'ART', 'TECHNOLOGY', 'STUDY', 'VARIETY'] as const;
 const CATEGORY_LABELS: Record<string, string> = {
-  ACADEMIC: 'Académico 📚',
-  SOCIAL: 'Social 🎉',
-  WELLNESS: 'Bienestar 🧘',
   SPORT: 'Deportivo ⚽',
-  CULTURAL: 'Cultural 🎭'
+  ENTERTAINMENT: 'Entretenimiento 🎬',
+  MUSIC: 'Música 🎵',
+  ART: 'Arte 🎨',
+  TECHNOLOGY: 'Tecnología 💻',
+  STUDY: 'Estudio 📚',
+  VARIETY: 'Variedad 🎉',
 };
+
+// Campus fallback when the user doesn't share a precise location.
+const DEFAULT_COORDS = { latitude: 4.601, longitude: -74.066 };
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const toDateStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const toTimeStr = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 export default function CreateEventScreen() {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [locationName, setLocationName] = useState('');
-  const [category, setCategory] = useState('SOCIAL');
+  const [category, setCategory] = useState<string>('VARIETY');
   const [maxParticipants, setMaxParticipants] = useState('20');
+  const [eventDate, setEventDate] = useState(toDateStr(new Date()));
+  const [startTime, setStartTime] = useState(toTimeStr(new Date()));
+  const [endTime, setEndTime] = useState(toTimeStr(new Date(Date.now() + 2 * 3600_000)));
+  const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locating, setLocating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const useMyLocation = async () => {
+    setLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permiso denegado', 'Sin ubicación usaremos el centro del campus.');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+    } catch {
+      Alert.alert('Error', 'No se pudo obtener tu ubicación.');
+    } finally {
+      setLocating(false);
+    }
+  };
+
   const handleCreate = async () => {
-    if (!title || !description || !locationName) {
+    if (!title.trim() || !description.trim() || !locationName.trim()) {
       Alert.alert('Error', 'Por favor llena todos los campos obligatorios');
       return;
     }
+    if (!DATE_RE.test(eventDate)) {
+      Alert.alert('Error', 'La fecha debe tener el formato AAAA-MM-DD');
+      return;
+    }
+    if (!TIME_RE.test(startTime) || !TIME_RE.test(endTime)) {
+      Alert.alert('Error', 'Las horas deben tener el formato HH:mm (24h)');
+      return;
+    }
+
+    const loc = coords ?? DEFAULT_COORDS;
+    const point: LocationDto = {
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      address: locationName.trim(),
+    };
+    const payload: CreateEventRequest = {
+      name: title.trim(),
+      description: description.trim(),
+      category,
+      maxCapacity: parseInt(maxParticipants, 10) || 10,
+      eventDate,
+      startTime,
+      endTime,
+      meetingPoint: point,
+      destination: point,
+    };
 
     setIsSubmitting(true);
     try {
-      await eventService.createEvent({
-        title,
-        description,
-        locationName,
-        category,
-        maxParticipants: parseInt(maxParticipants) || 10,
-        latitude: 4.735,
-        longitude: -74.032,
-        startTime: new Date().toISOString(),
-        endTime: new Date(Date.now() + 7200000).toISOString()
-      });
-      
+      await eventService.createEvent(payload);
       Alert.alert('Éxito', '¡Evento creado correctamente!', [
-        { text: 'OK', onPress: () => router.back() }
+        { text: 'OK', onPress: () => router.back() },
       ]);
     } catch (err) {
       console.log('Error creating event:', err);
@@ -78,6 +129,30 @@ export default function CreateEventScreen() {
           <View style={styles.formGroup}>
             <Text style={styles.label}>Ubicación (Edificio/Lugar) *</Text>
             <TextInput style={styles.input} placeholder="Ej. Bloque C - Plazoleta" placeholderTextColor="rgba(255, 255, 255, 0.3)" value={locationName} onChangeText={setLocationName} />
+            <Pressable style={styles.locationBtn} onPress={useMyLocation} disabled={locating}>
+              <Ionicons name="location" size={16} color="#7FE7C4" />
+              <Text style={styles.locationBtnText}>
+                {locating
+                  ? 'Obteniendo ubicación...'
+                  : coords
+                    ? `Ubicación fijada (${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)})`
+                    : 'Usar mi ubicación actual'}
+              </Text>
+            </Pressable>
+          </View>
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Fecha *</Text>
+            <TextInput style={styles.input} placeholder="AAAA-MM-DD" placeholderTextColor="rgba(255, 255, 255, 0.3)" value={eventDate} onChangeText={setEventDate} autoCapitalize="none" />
+          </View>
+          <View style={styles.row}>
+            <View style={[styles.formGroup, styles.rowItem]}>
+              <Text style={styles.label}>Hora inicio *</Text>
+              <TextInput style={styles.input} placeholder="HH:mm" placeholderTextColor="rgba(255, 255, 255, 0.3)" value={startTime} onChangeText={setStartTime} />
+            </View>
+            <View style={[styles.formGroup, styles.rowItem]}>
+              <Text style={styles.label}>Hora fin *</Text>
+              <TextInput style={styles.input} placeholder="HH:mm" placeholderTextColor="rgba(255, 255, 255, 0.3)" value={endTime} onChangeText={setEndTime} />
+            </View>
           </View>
           <View style={styles.formGroup}>
             <Text style={styles.label}>Cupos máximos</Text>
@@ -110,9 +185,13 @@ const styles = StyleSheet.create({
   scrollView: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 100 },
   formGroup: { marginBottom: 24 },
+  row: { flexDirection: 'row', gap: 12 },
+  rowItem: { flex: 1 },
   label: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: '500', marginBottom: 8, fontFamily: 'Inter' },
   input: { backgroundColor: 'rgba(255, 255, 255, 0.05)', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)', borderRadius: 12, padding: 16, color: 'white', fontSize: 15, fontFamily: 'Inter' },
   textArea: { height: 100 },
+  locationBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
+  locationBtnText: { color: '#7FE7C4', fontSize: 13, fontWeight: '500' },
   categoryScroll: { flexDirection: 'row', paddingTop: 4 },
   categoryBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.15)', marginRight: 12, backgroundColor: 'rgba(255, 255, 255, 0.02)' },
   categoryBtnActive: { backgroundColor: 'rgba(99, 102, 241, 0.15)', borderColor: 'rgba(99, 102, 241, 0.8)' },

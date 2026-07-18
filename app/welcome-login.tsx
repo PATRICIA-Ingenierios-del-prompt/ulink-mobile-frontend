@@ -139,9 +139,9 @@ export default function WelcomeLoginScreen() {
       if (uid) {
         const needsOnboarding = await userService.necesitaOnboarding(uid);
         if (needsOnboarding) {
-          // Jurados go through their own T&C + onboarding flow,
-          // NOT the student onboarding screen.
+
           router.replace("/jurado-terms" as any);
+
           return;
         }
       }

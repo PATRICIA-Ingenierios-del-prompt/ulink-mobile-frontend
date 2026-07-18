@@ -4,6 +4,7 @@
  * WITHOUT SockJS). JWT rides as ?access_token= on the WS upgrade.
  */
 
+import 'text-encoding';
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import { API_URL } from "../config/api";
 import { tokenManager } from "./tokenManager";
@@ -67,8 +68,16 @@ export class ChatSocket {
       beforeConnect: async () => {
         const token = (await tokenManager.getAccessToken()) ?? "";
         this.client.brokerURL = buildWsUrl(token);
-        this.client.connectHeaders = { Authorization: `Bearer ${token}` };
+        // The backend resolves the chat display name from the X-Username CONNECT
+        // header, falling back to the userId (UUID) when it's absent. Send the
+        // real profile name so other members see the name instead of the id.
+        const displayName = token ? tokenManager.getUserNameFromToken(token) : null;
+        this.client.connectHeaders = displayName
+          ? { Authorization: `Bearer ${token}`, "X-Username": displayName }
+          : { Authorization: `Bearer ${token}` };
       },
+      forceBinaryWSFrames: true,
+      appendMissingNULLonIncoming: true,
       reconnectDelay: 4000,
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,

@@ -14,6 +14,7 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTranslation } from "@/hooks/useTranslation";
 import { parcheService } from "@/services/parcheService";
+import { UserAvatar } from "@/components/UserAvatar";
 import type {
   ParcheSummaryResponse,
   ParcheCategory,
@@ -201,9 +202,11 @@ export default function ParchesScreen() {
         <View style={styles.topCenter}>
           <View style={styles.topDividerLine} />
         </View>
-        <Pressable style={styles.topAvatar} onPress={() => router.push("/profile")}>
-          <Text style={styles.topAvatarText}>{t("you")}</Text>
-        </Pressable>
+        <UserAvatar
+          size={42}
+          style={styles.topAvatar}
+          onPress={() => router.push("/profile")}
+        />
       </View>
 
       {/* ── Page title ── */}
