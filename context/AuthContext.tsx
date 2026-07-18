@@ -13,6 +13,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (tokens: TokenResponse) => Promise<void>;
+  isJurado: boolean;
   logout: () => Promise<void>;
   /** Call after updating the profile so the top-bar avatar/name refresh immediately. */
   refreshProfile: () => Promise<void>;
@@ -64,6 +65,7 @@ async function resolveProfile(
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [isJurado, setIsJurado] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
@@ -78,6 +80,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (token) {
           const uid = tokenManager.getUserIdFromToken(token);
           setAccessToken(token);
+          const roleR = tokenManager.getRoleFromToken(token);
+          setIsJurado(roleR === 'JURADO' || roleR === 'ROLE_JURADO' || roleR === 'jurado');
           setUserId(uid);
           setUserEmail(tokenManager.getUserEmailFromToken(token));
 
@@ -104,6 +108,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (tokens: TokenResponse) => {
     await tokenManager.setTokens(tokens.accessToken, tokens.refreshToken);
     const uid = tokenManager.getUserIdFromToken(tokens.accessToken);
+    const role = tokenManager.getRoleFromToken(tokens.accessToken);
+    setIsJurado(role === 'JURADO' || role === 'ROLE_JURADO' || role === 'jurado');
     setAccessToken(tokens.accessToken);
     setUserId(uid);
     setUserEmail(tokenManager.getUserEmailFromToken(tokens.accessToken));
@@ -165,6 +171,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated: !!accessToken,
         isLoading,
         login,
+    isJurado,
         logout,
         refreshProfile,
         setUserName,

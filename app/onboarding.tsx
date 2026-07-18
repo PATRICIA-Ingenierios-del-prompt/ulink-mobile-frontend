@@ -74,7 +74,7 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
 
 export default function OnboardingScreen() {
   const router = useRouter();
-  const { userId, login, setUserName } = useContext(AuthContext);
+  const { userId, login, setUserName, isJurado } = useContext(AuthContext);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
 
@@ -93,7 +93,7 @@ export default function OnboardingScreen() {
   const [activeCategory, setActiveCategory] = useState(INTEREST_CATEGORIES[0].id);
 
   const canStep1 = nombre.trim().length > 0 && apellidos.trim().length > 0;
-  const canStep2 = carrera.length > 0 && semestre !== null;
+  const canStep2 = isJurado || (carrera.length > 0 && semestre !== null);
   const canStep3 = selectedInterests.length >= 3 && selectedInterests.length <= 12;
 
   const handleFinish = useCallback(async () => {
@@ -103,8 +103,7 @@ export default function OnboardingScreen() {
       await userService.completarOnboarding(userId, {
         nombre: nombre.trim(),
         apellidos: apellidos.trim(),
-        carrera,
-        semestre: semestre!,
+        ...(isJurado ? {} : { carrera, semestre: semestre! }),
         genero: genero || undefined,
         intereses: selectedInterests,
       });
@@ -118,8 +117,7 @@ export default function OnboardingScreen() {
         await apiClient.put(`/api/v1/usuarios/${userId}/perfil`, {
           nombre: nombre.trim(),
           apellidos: apellidos.trim(),
-          carrera,
-          semestre: semestre!,
+          ...(isJurado ? {} : { carrera, semestre: semestre! }),
           genero: genero || undefined,
           onboardingCompleto: true,
         });
@@ -189,7 +187,7 @@ export default function OnboardingScreen() {
             </View>
           </View>
 
-          <ProgressBar step={1} total={3} />
+          <ProgressBar step={1} total={isJurado ? 2 : 3} />
 
           <Pressable
             style={[styles.continueBtn, !canStep1 && styles.continueBtnDisabled]}
@@ -213,13 +211,15 @@ export default function OnboardingScreen() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
           <View style={styles.stepHeader}>
-            <Text style={styles.stepEmoji}>🎓</Text>
-            <Text style={styles.stepTitle}>Perfil Academico</Text>
-            <Text style={styles.stepSubtitle}>Carrera, semestre y datos personales</Text>
+            <Text style={styles.stepEmoji}>{isJurado ? "🏅" : "🎓"}</Text>
+            <Text style={styles.stepTitle}>{isJurado ? "Tu Perfil" : "Perfil Academico"}</Text>
+            <Text style={styles.stepSubtitle}>{isJurado ? "Cuéntanos un poco de ti" : "Carrera, semestre y datos personales"}</Text>
           </View>
 
           <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
-            {/* Carrera */}
+            {/* Carrera y Semestre — solo para estudiantes */}
+            {!isJurado && (
+              <>
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>CARRERA</Text>
               <Pressable
@@ -263,6 +263,8 @@ export default function OnboardingScreen() {
                 ))}
               </View>
             </View>
+              </>
+            )}
 
             {/* Genero (optional) */}
             <View style={styles.fieldGroup}>
@@ -281,7 +283,7 @@ export default function OnboardingScreen() {
             </View>
           </ScrollView>
 
-          <ProgressBar step={2} total={3} />
+          <ProgressBar step={2} total={isJurado ? 2 : 3} />
 
           <View style={styles.stepActions}>
             <Pressable style={styles.backBtn} onPress={() => setStep(1)}>
