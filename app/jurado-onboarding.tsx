@@ -22,9 +22,14 @@ import { apiClient } from "@/services/apiClient";
 
 type Step = "terms" | "name" | "interests" | "saving";
 
+interface Interes {
+  codigo: string;
+  etiqueta: string;
+}
+
 interface InterestCategory {
   categoria: string;
-  intereses: string[];
+  intereses: Interes[];
 }
 
 // ─── Terms content ────────────────────────────────────────────────────────────
@@ -101,9 +106,9 @@ export default function JuradoOnboardingScreen() {
       .finally(() => setLoadingCatalog(false));
   }, [step]);
 
-  const toggleInterest = (interest: string) => {
+  const toggleInterest = (codigo: string) => {
     setSelected((prev) =>
-      prev.includes(interest) ? prev.filter((i) => i !== interest) : [...prev, interest]
+      prev.includes(codigo) ? prev.filter((i) => i !== codigo) : [...prev, codigo]
     );
   };
 
@@ -269,15 +274,15 @@ export default function JuradoOnboardingScreen() {
             <View key={cat.categoria}>
               <Text style={styles.catTitle}>{cat.categoria}</Text>
               <View style={styles.chipsWrap}>
-                {cat.intereses.map((interest) => {
-                  const on = selected.includes(interest);
+                {cat.intereses.map((interes, iIdx) => {
+                  const on = selected.includes(interes.codigo);
                   return (
                     <Pressable
-                      key={interest}
+                      key={`${cat.categoria}-${interes.codigo}-${iIdx}`}
                       style={[styles.chip, on && styles.chipOn]}
-                      onPress={() => toggleInterest(interest)}
+                      onPress={() => toggleInterest(interes.codigo)}
                     >
-                      <Text style={[styles.chipText, on && styles.chipTextOn]}>{interest}</Text>
+                      <Text style={[styles.chipText, on && styles.chipTextOn]}>{interes.etiqueta}</Text>
                     </Pressable>
                   );
                 })}
