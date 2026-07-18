@@ -59,6 +59,19 @@ export const tokenManager = {
     }
   },
 
+  getRoleFromToken(accessToken: string): string | null {
+    try {
+      const payload = JSON.parse(
+        atob(accessToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))
+      );
+      // Backend may use "role", "roles" (array), or "authorities"
+      const role = payload.role ?? payload.roles?.[0] ?? payload.authorities?.[0] ?? null;
+      return typeof role === "string" ? role : null;
+    } catch {
+      return null;
+    }
+  },
+
   getUserNameFromToken(accessToken: string): string | null {
     try {
       const payload = JSON.parse(
