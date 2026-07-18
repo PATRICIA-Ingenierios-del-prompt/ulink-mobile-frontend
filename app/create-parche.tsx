@@ -1,353 +1,253 @@
-import React, { useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Pressable,
-  TextInput,
-  Alert,
-  ActivityIndicator,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { useTranslation } from "@/hooks/useTranslation";
-import { parcheService } from "@/services/parcheService";
-import type { ParcheCategory, Visibility } from "@/services/types";
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TextInput, Pressable, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, Stack } from 'expo-router';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Location from 'expo-location';
+import { eventService, type CreateEventRequest, type LocationDto } from '@/services/eventService';
+import { friendlyError } from '@/lib/errorMessages';
 
-const CATEGORIES: { value: ParcheCategory; label: string; emoji: string }[] = [
-  { value: "MUSIC", label: "Música", emoji: "🎵" },
-  { value: "SPORT", label: "Deporte", emoji: "⚽" },
-  { value: "STUDY", label: "Estudio", emoji: "📚" },
-  { value: "TECHNOLOGY", label: "Tecnología", emoji: "💻" },
-  { value: "ENTERTAINMENT", label: "Entretenimiento", emoji: "🎮" },
-  { value: "ART", label: "Arte", emoji: "🎨" },
-  { value: "VARIETY", label: "Variado", emoji: "🎉" },
-];
+// Backend `Category` enum (PATRICIA_Events_Backend).
+const CATEGORIES = ['SPORT', 'ENTERTAINMENT', 'MUSIC', 'ART', 'TECHNOLOGY', 'STUDY', 'VARIETY'] as const;
+const CATEGORY_LABELS: Record<string, string> = {
+  SPORT: 'Deportivo ⚽',
+  ENTERTAINMENT: 'Entretenimiento 🎬',
+  MUSIC: 'Música 🎵',
+  ART: 'Arte 🎨',
+  TECHNOLOGY: 'Tecnología 💻',
+  STUDY: 'Estudio 📚',
+  VARIETY: 'Variedad 🎉',
+};
 
-const VISIBILITIES: { value: Visibility; label: string; icon: string }[] = [
-  { value: "PUBLIC", label: "Público", icon: "globe-outline" },
-  { value: "PRIVATE", label: "Privado", icon: "lock-closed-outline" },
-];
+// Campus fallback when the user doesn't share a precise location.
+const DEFAULT_COORDS = { latitude: 4.601, longitude: -74.066 };
 
-export default function CreateParcheScreen() {
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const toDateStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const toTimeStr = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+export default function CreateEventScreen() {
   const router = useRouter();
-  const { t } = useTranslation();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [category, setCategory] = useState<ParcheCategory>("VARIETY");
-  const [visibility, setVisibility] = useState<Visibility>("PUBLIC");
-  const [maxCapacity, setMaxCapacity] = useState("20");
-  const [loading, setLoading] = useState(false);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [locationName, setLocationName] = useState('');
+  const [category, setCategory] = useState<string>('VARIETY');
+  const [maxParticipants, setMaxParticipants] = useState('20');
+  const [eventDate, setEventDate] = useState(toDateStr(new Date()));
+  const [startTime, setStartTime] = useState(toTimeStr(new Date()));
+  const [endTime, setEndTime] = useState(toTimeStr(new Date(Date.now() + 2 * 3600_000)));
+  const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const useMyLocation = async () => {
+    setLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permiso denegado', 'Sin ubicación usaremos el centro del campus.');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+    } catch {
+      Alert.alert('Error', 'No se pudo obtener tu ubicación.');
+    } finally {
+      setLocating(false);
+    }
+  };
 
   const handleCreate = async () => {
-    if (!name.trim()) {
-      Alert.alert("Error", "El nombre es obligatorio");
+    // ── Campos obligatorios ────────────────────────────────────────────────
+    if (!title.trim()) {
+      Alert.alert('Falta el nombre', 'Escribe un nombre para el evento.');
       return;
     }
     if (!description.trim()) {
-      Alert.alert("Error", "La descripción es obligatoria");
+      Alert.alert('Falta la descripción', '¿De qué trata el evento?');
+      return;
+    }
+    if (!locationName.trim()) {
+      Alert.alert('Falta la ubicación', 'Indica el lugar donde será el evento.');
       return;
     }
 
-    const capacity = parseInt(maxCapacity, 10);
-    if (isNaN(capacity) || capacity < 2) {
-      Alert.alert("Error", "La capacidad debe ser al menos 2");
+    // ── Formato de fecha ───────────────────────────────────────────────────
+    if (!DATE_RE.test(eventDate)) {
+      Alert.alert('Fecha inválida', 'La fecha debe tener el formato AAAA-MM-DD (ej. 2025-08-20).');
       return;
     }
 
+    // ── Fecha no puede ser pasada ──────────────────────────────────────────
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const chosen = new Date(eventDate + 'T00:00');
+    if (chosen < today) {
+      Alert.alert('Fecha inválida', `La fecha ${eventDate} ya pasó. Elige una fecha a partir de hoy.`);
+      return;
+    }
+
+    // ── Formato de horas ───────────────────────────────────────────────────
+    if (!TIME_RE.test(startTime)) {
+      Alert.alert('Hora inválida', 'La hora de inicio debe tener el formato HH:mm (ej. 14:30).');
+      return;
+    }
+    if (!TIME_RE.test(endTime)) {
+      Alert.alert('Hora inválida', 'La hora de fin debe tener el formato HH:mm (ej. 16:00).');
+      return;
+    }
+
+    // ── Anticipación mínima de 30 min ──────────────────────────────────────
+    const startsAt = new Date(eventDate + 'T' + startTime);
+    const diffMinutes = (startsAt.getTime() - Date.now()) / 60_000;
+    if (diffMinutes < 30) {
+      Alert.alert('Hora muy próxima', 'El evento debe crearse con al menos 30 minutos de anticipación. Elige una hora de inicio más tarde.');
+      return;
+    }
+
+    // ── Hora inicio ≠ hora fin ─────────────────────────────────────────────
+    if (startTime === endTime) {
+      Alert.alert('Horas iguales', 'La hora de inicio y la hora de fin no pueden ser iguales.');
+      return;
+    }
+
+    // ── Duración máxima de 24 h ────────────────────────────────────────────
+    const endsAt = endTime > startTime
+      ? new Date(eventDate + 'T' + endTime)
+      : new Date(new Date(eventDate + 'T' + endTime).getTime() + 86_400_000);
+    const durationHours = (endsAt.getTime() - startsAt.getTime()) / 3_600_000;
+    if (durationHours > 24) {
+      Alert.alert('Duración excesiva', 'El evento no puede durar más de 24 horas.');
+      return;
+    }
+
+    const loc = coords ?? DEFAULT_COORDS;
+    const point: LocationDto = {
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      address: locationName.trim(),
+    };
+    const payload: CreateEventRequest = {
+      name: title.trim(),
+      description: description.trim(),
+      category,
+      maxCapacity: parseInt(maxParticipants, 10) || 10,
+      eventDate,
+      startTime,
+      endTime,
+      meetingPoint: point,
+      destination: point,
+    };
+
+    setIsSubmitting(true);
     try {
-      setLoading(true);
-      const result = await parcheService.create({
-        name: name.trim(),
-        description: description.trim(),
-        category,
-        maxCapacity: capacity,
-        visibility,
-      });
-      router.replace(`/(tabs)/parche?parcheId=${result.parcheId}`);
-    } catch (err) {
-      console.log("[CREATE PARCHE] Error:", err);
-      Alert.alert("Error", "No se pudo crear el parche");
+      await eventService.createEvent(payload);
+      Alert.alert('¡Evento creado!', 'Tu evento ya está publicado.', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    } catch (err: any) {
+      const msg = friendlyError(err, 'No se pudo crear el evento. Intenta de nuevo.');
+      Alert.alert('Error al crear evento', msg);
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.root}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* Header */}
+      <Stack.Screen options={{ headerShown: false }} />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={24} color="rgba(255, 255, 255, 0.8)" />
+          <Pressable style={styles.backBtn} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color="rgba(255, 255, 255, 0.8)" />
           </Pressable>
-          <Text style={styles.headerTitle}>Crear Parche</Text>
-          <View style={{ width: 32 }} />
+          <Text style={styles.headerTitle}>Crear Evento ECI</Text>
+          <View style={{ width: 40 }} />
         </View>
 
-        {/* Name */}
-        <View style={styles.field}>
-          <Text style={styles.label}>Nombre</Text>
-          <TextInput
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            placeholder="Ej: Club de Fotografía"
-            placeholderTextColor="rgba(90, 90, 104, 1)"
-            maxLength={50}
-          />
-        </View>
-
-        {/* Description */}
-        <View style={styles.field}>
-          <Text style={styles.label}>Descripción</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Cuéntanos de qué trata tu parche..."
-            placeholderTextColor="rgba(90, 90, 104, 1)"
-            multiline
-            numberOfLines={3}
-            maxLength={200}
-          />
-        </View>
-
-        {/* Category */}
-        <View style={styles.field}>
-          <Text style={styles.label}>Categoría</Text>
-          <View style={styles.categoryGrid}>
-            {CATEGORIES.map((cat) => (
-              <Pressable
-                key={cat.value}
-                style={[
-                  styles.categoryChip,
-                  category === cat.value && styles.categoryChipActive,
-                ]}
-                onPress={() => setCategory(cat.value)}
-              >
-                <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
-                <Text
-                  style={[
-                    styles.categoryText,
-                    category === cat.value && styles.categoryTextActive,
-                  ]}
-                >
-                  {cat.label}
-                </Text>
-              </Pressable>
-            ))}
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Título del evento *</Text>
+            <TextInput style={styles.input} placeholder="Ej. Torneo de Ping Pong" placeholderTextColor="rgba(255, 255, 255, 0.3)" value={title} onChangeText={setTitle} />
           </View>
-        </View>
-
-        {/* Visibility */}
-        <View style={styles.field}>
-          <Text style={styles.label}>Visibilidad</Text>
-          <View style={styles.visibilityRow}>
-            {VISIBILITIES.map((vis) => (
-              <Pressable
-                key={vis.value}
-                style={[
-                  styles.visibilityChip,
-                  visibility === vis.value && styles.visibilityChipActive,
-                ]}
-                onPress={() => setVisibility(vis.value)}
-              >
-                <Ionicons
-                  name={vis.icon as any}
-                  size={16}
-                  color={
-                    visibility === vis.value
-                      ? "rgba(129, 140, 248, 1)"
-                      : "rgba(90, 90, 104, 1)"
-                  }
-                />
-                <Text
-                  style={[
-                    styles.visibilityText,
-                    visibility === vis.value && styles.visibilityTextActive,
-                  ]}
-                >
-                  {vis.label}
-                </Text>
-              </Pressable>
-            ))}
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Descripción *</Text>
+            <TextInput style={[styles.input, styles.textArea]} placeholder="¿De qué trata el evento?" placeholderTextColor="rgba(255, 255, 255, 0.3)" value={description} onChangeText={setDescription} multiline textAlignVertical="top" />
           </View>
-        </View>
-
-        {/* Capacity */}
-        <View style={styles.field}>
-          <Text style={styles.label}>Capacidad máxima</Text>
-          <TextInput
-            style={styles.input}
-            value={maxCapacity}
-            onChangeText={setMaxCapacity}
-            placeholder="20"
-            placeholderTextColor="rgba(90, 90, 104, 1)"
-            keyboardType="numeric"
-            maxLength={3}
-          />
-        </View>
-
-        {/* Create button */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.createButton,
-            pressed && { opacity: 0.8, transform: [{ scale: 0.98 }] },
-          ]}
-          onPress={handleCreate}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="white" />
-          ) : (
-            <>
-              <Ionicons name="add-circle-outline" size={20} color="white" />
-              <Text style={styles.createButtonText}>Crear Parche</Text>
-            </>
-          )}
-        </Pressable>
-      </ScrollView>
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Ubicación (Edificio/Lugar) *</Text>
+            <TextInput style={styles.input} placeholder="Ej. Bloque C - Plazoleta" placeholderTextColor="rgba(255, 255, 255, 0.3)" value={locationName} onChangeText={setLocationName} />
+            <Pressable style={styles.locationBtn} onPress={useMyLocation} disabled={locating}>
+              <Ionicons name="location" size={16} color="#7FE7C4" />
+              <Text style={styles.locationBtnText}>
+                {locating
+                  ? 'Obteniendo ubicación...'
+                  : coords
+                    ? `Ubicación fijada (${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)})`
+                    : 'Usar mi ubicación actual'}
+              </Text>
+            </Pressable>
+          </View>
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Fecha *</Text>
+            <TextInput style={styles.input} placeholder="AAAA-MM-DD" placeholderTextColor="rgba(255, 255, 255, 0.3)" value={eventDate} onChangeText={setEventDate} autoCapitalize="none" />
+          </View>
+          <View style={styles.row}>
+            <View style={[styles.formGroup, styles.rowItem]}>
+              <Text style={styles.label}>Hora inicio *</Text>
+              <TextInput style={styles.input} placeholder="HH:mm" placeholderTextColor="rgba(255, 255, 255, 0.3)" value={startTime} onChangeText={setStartTime} />
+            </View>
+            <View style={[styles.formGroup, styles.rowItem]}>
+              <Text style={styles.label}>Hora fin *</Text>
+              <TextInput style={styles.input} placeholder="HH:mm" placeholderTextColor="rgba(255, 255, 255, 0.3)" value={endTime} onChangeText={setEndTime} />
+            </View>
+          </View>
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Cupos máximos</Text>
+            <TextInput style={styles.input} placeholder="Ej. 20" placeholderTextColor="rgba(255, 255, 255, 0.3)" value={maxParticipants} onChangeText={setMaxParticipants} keyboardType="numeric" />
+          </View>
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Categoría</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+              {CATEGORIES.map(cat => (
+                <Pressable key={cat} style={[styles.categoryBtn, category === cat && styles.categoryBtnActive]} onPress={() => setCategory(cat)}>
+                  <Text style={[styles.categoryBtnText, category === cat && styles.categoryBtnTextActive]}>{CATEGORY_LABELS[cat]}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+          <Pressable style={[styles.submitBtn, isSubmitting && { opacity: 0.7 }]} onPress={handleCreate} disabled={isSubmitting}>
+            <Text style={styles.submitBtnText}>{isSubmitting ? 'Creando...' : 'Publicar Evento'}</Text>
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-
-  // Header
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: 12,
-    paddingBottom: 24,
-  },
-  backButton: {
-    width: 32,
-    height: 32,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  headerTitle: {
-    color: "rgba(255, 255, 255, 1)",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-
-  // Fields
-  field: {
-    marginBottom: 24,
-  },
-  label: {
-    color: "rgba(143, 132, 224, 1)",
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: "rgba(255, 255, 255, 1)",
-    fontSize: 16,
-  },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: "top",
-  },
-
-  // Category
-  categoryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  categoryChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    gap: 6,
-  },
-  categoryChipActive: {
-    backgroundColor: "rgba(99, 102, 241, 0.2)",
-    borderColor: "rgba(99, 102, 241, 0.5)",
-  },
-  categoryEmoji: {
-    fontSize: 16,
-  },
-  categoryText: {
-    color: "rgba(90, 90, 104, 1)",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  categoryTextActive: {
-    color: "rgba(129, 140, 248, 1)",
-  },
-
-  // Visibility
-  visibilityRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  visibilityChip: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    gap: 8,
-  },
-  visibilityChipActive: {
-    backgroundColor: "rgba(99, 102, 241, 0.2)",
-    borderColor: "rgba(99, 102, 241, 0.5)",
-  },
-  visibilityText: {
-    color: "rgba(90, 90, 104, 1)",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  visibilityTextActive: {
-    color: "rgba(129, 140, 248, 1)",
-  },
-
-  // Create button
-  createButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(99, 102, 241, 1)",
-    paddingVertical: 16,
-    borderRadius: 16,
-    gap: 8,
-    marginTop: 8,
-  },
-  createButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  root: { flex: 1, backgroundColor: 'rgba(11, 13, 24, 1)' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.05)' },
+  backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'flex-start' },
+  headerTitle: { color: 'white', fontSize: 18, fontWeight: '600', fontFamily: 'Inter' },
+  scrollView: { flex: 1 },
+  scrollContent: { padding: 20, paddingBottom: 100 },
+  formGroup: { marginBottom: 24 },
+  row: { flexDirection: 'row', gap: 12 },
+  rowItem: { flex: 1 },
+  label: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: '500', marginBottom: 8, fontFamily: 'Inter' },
+  input: { backgroundColor: 'rgba(255, 255, 255, 0.05)', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)', borderRadius: 12, padding: 16, color: 'white', fontSize: 15, fontFamily: 'Inter' },
+  textArea: { height: 100 },
+  locationBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
+  locationBtnText: { color: '#7FE7C4', fontSize: 13, fontWeight: '500' },
+  categoryScroll: { flexDirection: 'row', paddingTop: 4 },
+  categoryBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.15)', marginRight: 12, backgroundColor: 'rgba(255, 255, 255, 0.02)' },
+  categoryBtnActive: { backgroundColor: 'rgba(99, 102, 241, 0.15)', borderColor: 'rgba(99, 102, 241, 0.8)' },
+  categoryBtnText: { color: 'rgba(255, 255, 255, 0.5)', fontSize: 13, fontWeight: '500' },
+  categoryBtnTextActive: { color: 'rgba(99, 102, 241, 1)', fontWeight: '600' },
+  submitBtn: { backgroundColor: 'rgba(99, 102, 241, 1)', borderRadius: 14, paddingVertical: 18, alignItems: 'center', marginTop: 12 },
+  submitBtnText: { color: 'white', fontSize: 16, fontWeight: '700', fontFamily: 'Inter' },
 });

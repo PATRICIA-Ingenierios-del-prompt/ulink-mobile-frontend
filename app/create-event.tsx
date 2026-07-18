@@ -5,6 +5,7 @@ import { useRouter, Stack } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Location from 'expo-location';
 import { eventService, type CreateEventRequest, type LocationDto } from '@/services/eventService';
+import { friendlyError } from '@/lib/errorMessages';
 
 // Backend `Category` enum (PATRICIA_Events_Backend).
 const CATEGORIES = ['SPORT', 'ENTERTAINMENT', 'MUSIC', 'ART', 'TECHNOLOGY', 'STUDY', 'VARIETY'] as const;
@@ -60,16 +61,66 @@ export default function CreateEventScreen() {
   };
 
   const handleCreate = async () => {
-    if (!title.trim() || !description.trim() || !locationName.trim()) {
-      Alert.alert('Error', 'Por favor llena todos los campos obligatorios');
+    // ── Campos obligatorios ────────────────────────────────────────────────
+    if (!title.trim()) {
+      Alert.alert('Falta el nombre', 'Escribe un nombre para el evento.');
       return;
     }
+    if (!description.trim()) {
+      Alert.alert('Falta la descripción', '¿De qué trata el evento?');
+      return;
+    }
+    if (!locationName.trim()) {
+      Alert.alert('Falta la ubicación', 'Indica el lugar donde será el evento.');
+      return;
+    }
+
+    // ── Formato de fecha ───────────────────────────────────────────────────
     if (!DATE_RE.test(eventDate)) {
-      Alert.alert('Error', 'La fecha debe tener el formato AAAA-MM-DD');
+      Alert.alert('Fecha inválida', 'La fecha debe tener el formato AAAA-MM-DD (ej. 2025-08-20).');
       return;
     }
-    if (!TIME_RE.test(startTime) || !TIME_RE.test(endTime)) {
-      Alert.alert('Error', 'Las horas deben tener el formato HH:mm (24h)');
+
+    // ── Fecha no puede ser pasada ──────────────────────────────────────────
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const chosen = new Date(eventDate + 'T00:00');
+    if (chosen < today) {
+      Alert.alert('Fecha inválida', `La fecha ${eventDate} ya pasó. Elige una fecha a partir de hoy.`);
+      return;
+    }
+
+    // ── Formato de horas ───────────────────────────────────────────────────
+    if (!TIME_RE.test(startTime)) {
+      Alert.alert('Hora inválida', 'La hora de inicio debe tener el formato HH:mm (ej. 14:30).');
+      return;
+    }
+    if (!TIME_RE.test(endTime)) {
+      Alert.alert('Hora inválida', 'La hora de fin debe tener el formato HH:mm (ej. 16:00).');
+      return;
+    }
+
+    // ── Anticipación mínima de 30 min ──────────────────────────────────────
+    const startsAt = new Date(eventDate + 'T' + startTime);
+    const diffMinutes = (startsAt.getTime() - Date.now()) / 60_000;
+    if (diffMinutes < 30) {
+      Alert.alert('Hora muy próxima', 'El evento debe crearse con al menos 30 minutos de anticipación. Elige una hora de inicio más tarde.');
+      return;
+    }
+
+    // ── Hora inicio ≠ hora fin ─────────────────────────────────────────────
+    if (startTime === endTime) {
+      Alert.alert('Horas iguales', 'La hora de inicio y la hora de fin no pueden ser iguales.');
+      return;
+    }
+
+    // ── Duración máxima de 24 h ────────────────────────────────────────────
+    const endsAt = endTime > startTime
+      ? new Date(eventDate + 'T' + endTime)
+      : new Date(new Date(eventDate + 'T' + endTime).getTime() + 86_400_000);
+    const durationHours = (endsAt.getTime() - startsAt.getTime()) / 3_600_000;
+    if (durationHours > 24) {
+      Alert.alert('Duración excesiva', 'El evento no puede durar más de 24 horas.');
       return;
     }
 
@@ -94,12 +145,12 @@ export default function CreateEventScreen() {
     setIsSubmitting(true);
     try {
       await eventService.createEvent(payload);
-      Alert.alert('Éxito', '¡Evento creado correctamente!', [
+      Alert.alert('¡Evento creado!', 'Tu evento ya está publicado.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
-    } catch (err) {
-      console.log('Error creating event:', err);
-      Alert.alert('Error', 'No se pudo crear el evento. Revisa tu conexión.');
+    } catch (err: any) {
+      const msg = friendlyError(err, 'No se pudo crear el evento. Intenta de nuevo.');
+      Alert.alert('Error al crear evento', msg);
     } finally {
       setIsSubmitting(false);
     }
