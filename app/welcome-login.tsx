@@ -139,7 +139,9 @@ export default function WelcomeLoginScreen() {
       if (uid) {
         const needsOnboarding = await userService.necesitaOnboarding(uid);
         if (needsOnboarding) {
-          router.replace("/onboarding" as any);
+
+          router.replace("/jurado-terms" as any);
+
           return;
         }
       }
