@@ -47,7 +47,7 @@ function ActivityItem({ initials, name, action, time, color, noBorder }: any) {
 export default function ProfileScreen() {
   const router = useRouter();
   const { t } = useTranslation();
-  const { userId, userName, setUserName, setUserPhoto, refreshProfile } = useContext(AuthContext);
+  const { userId, userName, setUserName, setUserPhoto, refreshProfile, isJurado } = useContext(AuthContext);
 
   const [profile, setProfile] = useState<PerfilResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,9 +122,11 @@ export default function ProfileScreen() {
         .toUpperCase()
     : "U";
 
-  const degreeLine = [profile?.carrera, profile?.semestre ? `Sem ${profile.semestre}` : null]
-    .filter(Boolean)
-    .join(" · ");
+  const degreeLine = isJurado
+    ? "Jurado Externo"
+    : [profile?.carrera, profile?.semestre ? `Sem ${profile.semestre}` : null]
+        .filter(Boolean)
+        .join(" · ");
 
   const handleEditPress = () => {
     setDraft({
@@ -251,7 +253,9 @@ export default function ProfileScreen() {
               </View>
             </View>
 
-            {/* Carrera */}
+            {/* Carrera y Semestre — ocultos para jurados */}
+            {!isJurado && (
+              <>
             <View style={styles.editFieldGroup}>
               <Text style={styles.editFieldLabel}>Carrera</Text>
               <View style={styles.editInputWrap}>
@@ -265,7 +269,6 @@ export default function ProfileScreen() {
               </View>
             </View>
 
-            {/* Semestre */}
             <View style={styles.editFieldGroup}>
               <Text style={styles.editFieldLabel}>Semestre</Text>
               <View style={styles.editInputWrap}>
@@ -279,6 +282,8 @@ export default function ProfileScreen() {
                 />
               </View>
             </View>
+              </>
+            )}
 
             {/* Bio */}
             <View style={styles.editFieldGroup}>
