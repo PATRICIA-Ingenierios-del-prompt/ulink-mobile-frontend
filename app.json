@@ -10,7 +10,12 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bitcode": false
+      "bitcode": false,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "U-LINK necesita acceso a tu ubicación para mostrar tu posición en el mapa de eventos.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "U-LINK necesita acceso a tu ubicación para compartir tu posición en eventos en vivo."
+      },
+      "bundleIdentifier": "com.ulink.app"
     },
     "android": {
       "package": "com.ulink.app",

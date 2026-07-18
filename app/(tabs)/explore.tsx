@@ -11,6 +11,10 @@ import {
   Image,
   ScrollView,
   Alert,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -51,6 +55,15 @@ function hashIdx(s: string, mod: number): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return Math.abs(h) % mod;
+}
+
+/** Lowercase + strip diacritics so "María" matches "maria". */
+function normalize(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 // ── Photo Gate Component ──────────────────────────────────────────────────────
@@ -397,61 +410,150 @@ export default function MatchingScreen() {
   const [profiles, setProfiles] = useState<MatchProfile[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loadingFeed, setLoadingFeed] = useState(false);
+  // Users decided on this session (LIKE or DESCARTE). Never re-shown in the
+  // deck, even if a cached/stale suggestion list still contains them.
+  const decididosRef = useRef<Set<string>>(new Set());
   const pan = useRef(new Animated.ValueXY()).current;
   const SWIPE_THRESHOLD = 120;
 
-  const loadProfiles = useCallback(async (append = false) => {
+  // ── Match celebration ─────────────────────────────────────────────────────
+  const [matchWith, setMatchWith] = useState<MatchProfile | null>(null);
+
+  const hydrateProfile = useCallback(
+    async (candidatoId: string, scoreTotal: number, i: number): Promise<MatchProfile | null> => {
+      try {
+        const perfil = await userService.getPerfil(candidatoId);
+        return {
+          id: candidatoId,
+          name: `${perfil.nombre || ""} ${perfil.apellidos || ""}`.trim() || "Usuario",
+          career: perfil.carrera || "",
+          year: perfil.semestre ? `${perfil.semestre}° semestre` : "",
+          tags: (perfil.intereses || []).slice(0, 3),
+          compatibility: Math.max(0, Math.min(100, Math.round(scoreTotal * 100))),
+          initials:
+            (perfil.nombre?.[0] || "U").toUpperCase() +
+            (perfil.apellidos?.[0] || "").toUpperCase(),
+          university: "ECI",
+          bio: perfil.bio || "",
+          bgColor1: "rgba(55, 40, 120, 1)",
+          bgColor2: "rgba(20, 15, 60, 1)",
+          accentColor: ACCENT_COLORS[i % ACCENT_COLORS.length],
+          foto: perfil.foto,
+        } as MatchProfile;
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
+
+  const loadProfiles = useCallback(async (refresh = false) => {
     setLoadingFeed(true);
     try {
-      const sugerencias = await matchingService.obtenerSugerencias(8);
+      if (refresh) matchingService.invalidarSugerencias();
+      const sugerencias = await matchingService.obtenerSugerencias(20);
       const hydrated = await Promise.all(
-        sugerencias.map(async (s, i) => {
-          try {
-            const perfil = await userService.getPerfil(s.candidatoId);
-            return {
-              id: s.candidatoId,
-              name: `${perfil.nombre || ""} ${perfil.apellidos || ""}`.trim() || "Usuario",
-              career: perfil.carrera || "",
-              year: perfil.semestre ? `${perfil.semestre}° semestre` : "",
-              tags: (perfil.intereses || []).slice(0, 3),
-              compatibility: Math.round((s.score ?? 0) * 100),
-              initials:
-                (perfil.nombre?.[0] || "U").toUpperCase() +
-                (perfil.apellidos?.[0] || "").toUpperCase(),
-              university: "ECI",
-              bio: perfil.bio || "",
-              bgColor1: "rgba(55, 40, 120, 1)",
-              bgColor2: "rgba(20, 15, 60, 1)",
-              accentColor: ACCENT_COLORS[i % ACCENT_COLORS.length],
-              foto: perfil.foto,
-            } as MatchProfile;
-          } catch {
-            return null;
-          }
-        })
+        sugerencias
+          .filter((s) => s.candidatoId !== userId && !decididosRef.current.has(s.candidatoId))
+          .map((s, i) => hydrateProfile(s.candidatoId, s.scoreTotal, i))
       );
       const fresh = hydrated.filter((p): p is MatchProfile => p !== null);
-      setProfiles((prev) => {
-        if (append) {
-          const ids = new Set(prev.map((p) => p.id));
-          return [...prev, ...fresh.filter((p) => !ids.has(p.id))];
-        }
-        return fresh;
-      });
+      setProfiles(fresh);
+      setCurrentIndex(0);
     } catch (err) {
       console.log("[MATCHING] Load error:", err);
     } finally {
       setLoadingFeed(false);
     }
-  }, []);
+  }, [userId, hydrateProfile]);
 
   // Load feed once the photo gate is passed
   useEffect(() => {
     if (hasPhoto) loadProfiles();
-  }, [hasPhoto]);
+  }, [hasPhoto, loadProfiles]);
+
+  // ── Search state ──────────────────────────────────────────────────────────
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [searchPool, setSearchPool] = useState<MatchProfile[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [sentLikes, setSentLikes] = useState<Set<string>>(new Set());
+
+  const openSearch = useCallback(async () => {
+    setSearchOpen(true);
+    if (searchPool.length > 0) return;
+    setSearchLoading(true);
+    try {
+      // Searchable pool = suggestion queue + people who sent me a request.
+      // Confirmed matches are excluded (you connect with them from Matches).
+      const [sugerencias, matches, solicitudes] = await Promise.all([
+        matchingService.obtenerSugerencias(50).catch(() => []),
+        matchingService.listarMatches().catch(() => []),
+        matchingService.solicitudesRecibidas().catch(() => []),
+      ]);
+      const matchedIds = new Set(matches.map((m) => m.otroUsuarioId));
+      const pool = new Map<string, number>();
+      sugerencias.forEach((s) => {
+        if (s.candidatoId !== userId) pool.set(s.candidatoId, s.scoreTotal);
+      });
+      solicitudes.forEach((id) => {
+        if (id !== userId && !pool.has(id)) pool.set(id, 0);
+      });
+      const hydrated = await Promise.all(
+        [...pool.entries()]
+          .filter(([id]) => !matchedIds.has(id))
+          .map(([id, score], i) => hydrateProfile(id, score, i))
+      );
+      setSearchPool(hydrated.filter((p): p is MatchProfile => p !== null));
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [searchPool.length, userId, hydrateProfile]);
+
+  const searchResults =
+    query.trim().length === 0
+      ? []
+      : searchPool.filter(
+          (p) =>
+            normalize(p.name).includes(normalize(query)) ||
+            normalize(p.career).includes(normalize(query))
+        );
+
+  const likeFromSearch = async (p: MatchProfile) => {
+    try {
+      const res = await matchingService.decidir(p.id, "LIKE");
+      decididosRef.current.add(p.id);
+      setSentLikes((prev) => new Set(prev).add(p.id));
+      if (res.matchConfirmado) {
+        setSearchOpen(false);
+        setMatchWith(p);
+      }
+    } catch {
+      Alert.alert(
+        "No se pudo enviar la solicitud",
+        "Este usuario ya no está disponible para matching en este momento."
+      );
+    }
+  };
 
   // ── Swipe mechanics ───────────────────────────────────────────────────────
-  const profile = profiles[currentIndex % Math.max(profiles.length, 1)];
+  // No wrap-around: once the deck is exhausted we show the end-of-deck state.
+  // Wrapping re-showed users the person had already rejected. Also skip
+  // anyone already decided on (e.g. liked from the search overlay).
+  let deckIdx = currentIndex;
+  while (deckIdx < profiles.length && decididosRef.current.has(profiles[deckIdx].id)) deckIdx++;
+  const profile = deckIdx < profiles.length ? profiles[deckIdx] : undefined;
+  const deckExhausted = !loadingFeed && profiles.length > 0 && !profile;
+
+  // The PanResponder is created once, so route its callbacks through a ref —
+  // otherwise the gesture handlers close over the first render's (empty)
+  // profile and swipes never reach the backend.
+  const onReleaseRef = useRef<(dx: number) => void>(() => {});
+  onReleaseRef.current = (dx: number) => {
+    if (dx > SWIPE_THRESHOLD) forceSwipe("right");
+    else if (dx < -SWIPE_THRESHOLD) forceSwipe("left");
+    else resetPosition();
+  };
 
   const panResponder = useRef(
     PanResponder.create({
@@ -459,11 +561,7 @@ export default function MatchingScreen() {
       onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
         useNativeDriver: false,
       }),
-      onPanResponderRelease: (_e, gesture) => {
-        if (gesture.dx > SWIPE_THRESHOLD) forceSwipe("right");
-        else if (gesture.dx < -SWIPE_THRESHOLD) forceSwipe("left");
-        else resetPosition();
-      },
+      onPanResponderRelease: (_e, gesture) => onReleaseRef.current(gesture.dx),
     })
   ).current;
 
@@ -478,11 +576,18 @@ export default function MatchingScreen() {
 
   const onSwipeComplete = (direction: "left" | "right") => {
     const decision = direction === "right" ? "LIKE" : "DESCARTE";
-    if (profile) {
-      matchingService.decidir(profile.id, decision).catch(() => {});
+    const decided = profile;
+    if (decided) {
+      decididosRef.current.add(decided.id);
+      matchingService
+        .decidir(decided.id, decision)
+        .then((res) => {
+          // Two mutual likes → the backend auto-confirms the match.
+          if (res.matchConfirmado) setMatchWith(decided);
+        })
+        .catch(() => {});
     }
     pan.setValue({ x: 0, y: 0 });
-    if (currentIndex + 2 >= profiles.length) loadProfiles(true);
     setCurrentIndex((i) => i + 1);
   };
 
@@ -557,6 +662,9 @@ export default function MatchingScreen() {
         <View style={styles.topCenter}>
           <View style={styles.topDividerLine} />
         </View>
+        <Pressable style={styles.topHeart} onPress={openSearch}>
+          <Ionicons name="search" size={23} color="rgba(143, 132, 224, 0.9)" />
+        </Pressable>
         <UserAvatar
             size={42}
             style={styles.topAvatar}
@@ -585,6 +693,25 @@ export default function MatchingScreen() {
           <Text style={styles.emptySubtext}>
             Vuelve más tarde para descubrir personas nuevas
           </Text>
+          <Pressable style={styles.refreshBtn} onPress={() => loadProfiles(true)}>
+            <Ionicons name="refresh" size={16} color="#fff" />
+            <Text style={styles.refreshBtnText}>Actualizar</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* Deck exhausted — everyone in the queue got a decision */}
+      {deckExhausted && (
+        <View style={styles.emptyState}>
+          <Ionicons name="checkmark-done-circle-outline" size={48} color="rgba(99, 102, 241, 0.5)" />
+          <Text style={styles.emptyText}>¡Estás al día!</Text>
+          <Text style={styles.emptySubtext}>
+            Ya decidiste sobre todas las sugerencias. Busca a alguien o vuelve más tarde.
+          </Text>
+          <Pressable style={styles.refreshBtn} onPress={() => loadProfiles(true)}>
+            <Ionicons name="refresh" size={16} color="#fff" />
+            <Text style={styles.refreshBtnText}>Buscar más personas</Text>
+          </Pressable>
         </View>
       )}
 
@@ -696,9 +823,274 @@ export default function MatchingScreen() {
           </View>
         </Animated.View>
       )}
+
+      {/* ── Search overlay ── */}
+      <Modal visible={searchOpen} animationType="slide" transparent onRequestClose={() => setSearchOpen(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={searchStyles.backdrop}
+        >
+          <View style={searchStyles.sheet}>
+            <View style={searchStyles.headerRow}>
+              <View style={searchStyles.inputWrap}>
+                <Ionicons name="search" size={18} color="#90909A" />
+                <TextInput
+                  style={searchStyles.input}
+                  placeholder="Buscar por nombre o carrera…"
+                  placeholderTextColor="#90909A"
+                  value={query}
+                  onChangeText={setQuery}
+                  autoFocus
+                  autoCorrect={false}
+                />
+                {query.length > 0 && (
+                  <Pressable onPress={() => setQuery("")}>
+                    <Ionicons name="close-circle" size={18} color="#90909A" />
+                  </Pressable>
+                )}
+              </View>
+              <Pressable onPress={() => setSearchOpen(false)} style={searchStyles.cancelBtn}>
+                <Text style={searchStyles.cancelText}>Cerrar</Text>
+              </Pressable>
+            </View>
+
+            {searchLoading ? (
+              <View style={searchStyles.centerBox}>
+                <ActivityIndicator size="large" color="#6C63FF" />
+                <Text style={searchStyles.hint}>Cargando personas…</Text>
+              </View>
+            ) : query.trim().length === 0 ? (
+              <View style={searchStyles.centerBox}>
+                <Ionicons name="people-circle-outline" size={44} color="rgba(108,99,255,0.5)" />
+                <Text style={searchStyles.hint}>
+                  Escribe un nombre o carrera para encontrar personas.
+                </Text>
+              </View>
+            ) : searchResults.length === 0 ? (
+              <View style={searchStyles.centerBox}>
+                <Ionicons name="sad-outline" size={44} color="rgba(108,99,255,0.5)" />
+                <Text style={searchStyles.hint}>Sin resultados para “{query.trim()}”.</Text>
+              </View>
+            ) : (
+              <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={searchStyles.list}>
+                {searchResults.map((p) => {
+                  const liked = sentLikes.has(p.id) || decididosRef.current.has(p.id);
+                  return (
+                    <View key={p.id} style={searchStyles.row}>
+                      <Pressable
+                        style={searchStyles.rowMain}
+                        onPress={() => {
+                          setSearchOpen(false);
+                          router.push(`/user/${p.id}`);
+                        }}
+                      >
+                        {p.foto ? (
+                          <Image source={{ uri: p.foto }} style={searchStyles.avatar} />
+                        ) : (
+                          <View style={[searchStyles.avatar, searchStyles.avatarFallback]}>
+                            <Text style={searchStyles.avatarInitials}>{p.initials}</Text>
+                          </View>
+                        )}
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={searchStyles.rowName} numberOfLines={1}>{p.name}</Text>
+                          <Text style={searchStyles.rowCareer} numberOfLines={1}>
+                            {p.career}{p.year ? ` · ${p.year}` : ""}
+                          </Text>
+                        </View>
+                      </Pressable>
+                      {liked ? (
+                        <View style={searchStyles.sentChip}>
+                          <Ionicons name="checkmark" size={14} color="#7FE7C4" />
+                          <Text style={searchStyles.sentChipText}>Enviada</Text>
+                        </View>
+                      ) : (
+                        <Pressable style={searchStyles.likeBtn} onPress={() => likeFromSearch(p)}>
+                          <Ionicons name="heart" size={16} color="#fff" />
+                          <Text style={searchStyles.likeBtnText}>Solicitud</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  );
+                })}
+                <View style={{ height: 40 }} />
+              </ScrollView>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── "It's a match!" celebration ── */}
+      <Modal visible={!!matchWith} animationType="fade" transparent onRequestClose={() => setMatchWith(null)}>
+        <View style={matchStyles.backdrop}>
+          <LinearGradient
+            colors={["#3B2F8E", "#6C63FF", "#9B55D4"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={matchStyles.card}
+          >
+            <Text style={matchStyles.sparkle}>✨</Text>
+            <Text style={matchStyles.title}>¡Es un match!</Text>
+            <Text style={matchStyles.sub}>
+              A {matchWith?.name} también le interesa conectar contigo.
+            </Text>
+            {matchWith?.foto ? (
+              <Image source={{ uri: matchWith.foto }} style={matchStyles.photo} />
+            ) : (
+              <View style={[matchStyles.photo, matchStyles.photoFallback]}>
+                <Text style={matchStyles.photoInitials}>{matchWith?.initials}</Text>
+              </View>
+            )}
+            <Pressable
+              style={matchStyles.chatBtn}
+              onPress={() => {
+                const id = matchWith?.id;
+                setMatchWith(null);
+                if (id) router.push(`/chat/${id}`);
+              }}
+            >
+              <Ionicons name="chatbubble" size={16} color="#3B2F8E" />
+              <Text style={matchStyles.chatBtnText}>Enviar mensaje</Text>
+            </Pressable>
+            <Pressable style={matchStyles.laterBtn} onPress={() => setMatchWith(null)}>
+              <Text style={matchStyles.laterText}>Seguir descubriendo</Text>
+            </Pressable>
+          </LinearGradient>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
+
+// ── Search overlay styles ─────────────────────────────────────────────────────
+
+const searchStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: "rgba(5, 5, 15, 0.75)", justifyContent: "flex-end" },
+  sheet: {
+    height: "85%",
+    backgroundColor: "#151130",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: "rgba(108,99,255,0.25)",
+  },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
+  inputWrap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    height: 44,
+    borderWidth: 1,
+    borderColor: "rgba(108,99,255,0.25)",
+  },
+  input: { flex: 1, color: "#fff", fontSize: 14 },
+  cancelBtn: { paddingHorizontal: 4, paddingVertical: 8 },
+  cancelText: { color: "#8B7FFF", fontSize: 14, fontWeight: "600" },
+  centerBox: { alignItems: "center", paddingTop: 60, paddingHorizontal: 30, gap: 12 },
+  hint: { color: "#90909A", fontSize: 13, textAlign: "center", lineHeight: 19 },
+  list: { gap: 10, paddingBottom: 20 },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(108,99,255,0.15)",
+    borderRadius: 16,
+    padding: 10,
+  },
+  rowMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0 },
+  avatar: { width: 44, height: 44, borderRadius: 22 },
+  avatarFallback: {
+    backgroundColor: "rgba(108,99,255,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitials: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  rowName: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  rowCareer: { color: "#90909A", fontSize: 11, marginTop: 2 },
+  likeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#6C63FF",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  likeBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  sentChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "rgba(127,231,196,0.4)",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  sentChipText: { color: "#7FE7C4", fontSize: 12, fontWeight: "600" },
+});
+
+// ── Match celebration styles ──────────────────────────────────────────────────
+
+const matchStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(5, 5, 15, 0.85)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 28,
+  },
+  card: {
+    width: "100%",
+    borderRadius: 28,
+    alignItems: "center",
+    paddingVertical: 34,
+    paddingHorizontal: 24,
+  },
+  sparkle: { fontSize: 34, marginBottom: 6 },
+  title: { fontSize: 28, fontWeight: "900", color: "#fff", letterSpacing: -0.5 },
+  sub: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.85)",
+    textAlign: "center",
+    marginTop: 8,
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  photo: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.7)",
+    marginBottom: 24,
+  },
+  photoFallback: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  photoInitials: { fontSize: 36, fontWeight: "800", color: "#fff" },
+  chatBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingHorizontal: 26,
+    paddingVertical: 13,
+  },
+  chatBtnText: { color: "#3B2F8E", fontSize: 15, fontWeight: "800" },
+  laterBtn: { marginTop: 14, padding: 6 },
+  laterText: { color: "rgba(255,255,255,0.8)", fontSize: 13, fontWeight: "600" },
+});
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -725,6 +1117,17 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: "center",
   },
+  refreshBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#6C63FF",
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    marginTop: 20,
+  },
+  refreshBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
 
   // ── Top bar ──
   topBar: {
