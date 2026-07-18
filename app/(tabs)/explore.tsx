@@ -414,7 +414,7 @@ export default function MatchingScreen() {
               career: perfil.carrera || "",
               year: perfil.semestre ? `${perfil.semestre}° semestre` : "",
               tags: (perfil.intereses || []).slice(0, 3),
-              compatibility: Math.round(s.score * 100),
+              compatibility: Math.round((s.score ?? 0) * 100),
               initials:
                 (perfil.nombre?.[0] || "U").toUpperCase() +
                 (perfil.apellidos?.[0] || "").toUpperCase(),
@@ -490,8 +490,8 @@ export default function MatchingScreen() {
     Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
   };
 
-  const handleAction = (action: "like" | "dislike" | "star") => {
-    if (action === "like" || action === "star") forceSwipe("right");
+  const handleAction = (action: "like" | "dislike") => {
+    if (action === "like") forceSwipe("right");
     else forceSwipe("left");
   };
 
@@ -683,18 +683,8 @@ export default function MatchingScreen() {
             >
               <Ionicons name="close" size={28} color="rgba(242, 63, 67, 1)" />
             </Pressable>
-            <Pressable
-              onPress={() => handleAction("star")}
-              style={({ pressed }) => [
-                styles.actionBtn,
-                styles.actionStar,
-                pressed && { transform: [{ scale: 0.9 }], opacity: 0.8 },
-              ]}
-            >
-              <Ionicons name="star" size={20} color="rgba(240, 178, 50, 1)" />
-            </Pressable>
-            <Pressable
-              onPress={() => handleAction("like")}
+               <Pressable
+              onPress={() => handleAction("like")
               style={({ pressed }) => [
                 styles.actionBtn,
                 styles.actionLike,
