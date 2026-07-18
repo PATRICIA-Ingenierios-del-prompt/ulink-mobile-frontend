@@ -98,8 +98,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "c634d1db-11cd-45e5-b784-f220e14db7d5"
+        "projectId": "a02d8b28-0af3-4d09-a70d-c81074fbf22a"
       }
-    }
+    },
+    "owner": "juank105s-team"
   }
 }
