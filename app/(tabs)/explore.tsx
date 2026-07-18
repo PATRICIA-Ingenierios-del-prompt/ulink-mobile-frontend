@@ -51,12 +51,6 @@ interface MatchProfile {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function hashIdx(s: string, mod: number): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h) % mod;
-}
-
 /** Lowercase + strip diacritics so "María" matches "maria". */
 function normalize(s: string): string {
   return s
@@ -810,8 +804,8 @@ export default function MatchingScreen() {
             >
               <Ionicons name="close" size={28} color="rgba(242, 63, 67, 1)" />
             </Pressable>
-               <Pressable
-              onPress={() => handleAction("like")
+            <Pressable
+              onPress={() => handleAction("like")}
               style={({ pressed }) => [
                 styles.actionBtn,
                 styles.actionLike,
@@ -1331,12 +1325,6 @@ const styles = StyleSheet.create({
     height: 60,
     borderColor: "rgba(242, 63, 67, 0.30)",
     backgroundColor: "rgba(242, 63, 67, 0.10)",
-  },
-  actionStar: {
-    width: 48,
-    height: 48,
-    borderColor: "rgba(240, 178, 50, 0.30)",
-    backgroundColor: "rgba(240, 178, 50, 0.10)",
   },
   actionLike: {
     width: 60,
