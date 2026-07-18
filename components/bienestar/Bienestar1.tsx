@@ -1,6 +1,6 @@
 import {StyleSheet} from 'react-native';
 import {View, Text, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, Alert, Image, Keyboard, ActivityIndicator} from 'react-native';
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -42,6 +42,14 @@ export function Bienestar1(props: Bienestar1Props) {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Forzar scroll al montar para que los mensajes iniciales sean visibles
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: false });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, []);
 
   const [messages, setMessages] = useState<MonoMessage[]>([
     {

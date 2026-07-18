@@ -68,8 +68,10 @@ function NotificationObserver() {
   useEffect(() => {
     function redirect(notification: Notifications.Notification) {
       const url = notification.request.content.data?.url;
-      if (typeof url === 'string') {
-        router.push(url as any);
+      // Ignorar rutas que no existen en el frontend (ej. jurado-onboarding, jurado-terms)
+      const IGNORED_ROUTES = ['jurado-onboarding', 'jurado-terms'];
+      if (typeof url === 'string' && !IGNORED_ROUTES.some(r => url.includes(r))) {
+        try { router.push(url as any); } catch { /* ruta desconocida — ignorar */ }
       }
     }
 
@@ -129,8 +131,6 @@ export default function RootLayout() {
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="welcome-login" options={{ headerShown: false }} />
             <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-            <Stack.Screen name="jurado-terms" options={{ headerShown: false }} />
-            <Stack.Screen name="jurado-onboarding" options={{ headerShown: false }} />
             <Stack.Screen name="home" options={{ headerShown: false }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="settings" options={{ headerShown: false }} />

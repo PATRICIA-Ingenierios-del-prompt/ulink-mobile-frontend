@@ -1,9 +1,12 @@
 import { Redirect } from "expo-router";
 import { useAuth } from "../hooks/useAuth";
+import { useContext } from "react";
+import { AuthContext } from "../context/AuthContext";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 
 export default function Index() {
   const { isAuthenticated, isLoading } = useAuth();
+  const { userName } = useContext(AuthContext);
 
   if (isLoading) {
     return (
@@ -14,6 +17,11 @@ export default function Index() {
   }
 
   if (isAuthenticated) {
+    // Si el usuario no tiene nombre (onboarding incompleto), mandarlo a onboarding.
+    // Esto cubre el caso del jurado que llega con nombre: null.
+    if (!userName) {
+      return <Redirect href="/onboarding" />;
+    }
     return <Redirect href="/(tabs)/home" />;
   }
 
