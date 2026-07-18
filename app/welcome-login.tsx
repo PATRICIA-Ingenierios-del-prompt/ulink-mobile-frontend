@@ -5,8 +5,10 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -30,6 +32,8 @@ export default function WelcomeLoginScreen() {
   // ── Jurado (external evaluator) flow state ──
   const [juradoEmail, setJuradoEmail] = useState("");
   const [juradoPassword, setJuradoPassword] = useState("");
+  const [showJuradoTerms, setShowJuradoTerms] = useState(false);
+  const [juradoTermsAccepted, setJuradoTermsAccepted] = useState(false);
 
   // ── Microsoft OAuth ──
 
@@ -139,9 +143,8 @@ export default function WelcomeLoginScreen() {
       if (uid) {
         const needsOnboarding = await userService.necesitaOnboarding(uid);
         if (needsOnboarding) {
-
-          router.replace("/jurado-terms" as any);
-
+          // Jurados: flujo propio de onboarding (términos → nombre → intereses)
+          router.replace("/jurado-onboarding" as any);
           return;
         }
       }
@@ -259,10 +262,29 @@ export default function WelcomeLoginScreen() {
                 secureTextEntry
                 autoCapitalize="none"
               />
+              {/* Aceptación de términos */}
               <Pressable
-                style={[styles.button, loading && styles.buttonDisabled]}
+                style={styles.termsRow}
+                onPress={() => setJuradoTermsAccepted(v => !v)}
+              >
+                <View style={[styles.checkbox, juradoTermsAccepted && styles.checkboxChecked]}>
+                  {juradoTermsAccepted && <Text style={styles.checkmark}>✓</Text>}
+                </View>
+                <Text style={styles.termsText}>
+                  Acepto los{" "}
+                  <Text
+                    style={styles.termsLink}
+                    onPress={() => setShowJuradoTerms(true)}
+                  >
+                    términos de uso y política de privacidad
+                  </Text>
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={[styles.button, (loading || !juradoTermsAccepted) && styles.buttonDisabled]}
                 onPress={handleJuradoLogin}
-                disabled={loading || !juradoEmail.trim() || !juradoPassword}
+                disabled={loading || !juradoEmail.trim() || !juradoPassword || !juradoTermsAccepted}
               >
                 {loading ? (
                   <ActivityIndicator color="rgba(10, 10, 12, 1)" size="small" />
@@ -270,6 +292,61 @@ export default function WelcomeLoginScreen() {
                   <Text style={styles.signInButtonText}>Iniciar sesión</Text>
                 )}
               </Pressable>
+
+              {/* Modal de términos */}
+              <Modal
+                visible={showJuradoTerms}
+                animationType="slide"
+                transparent
+                onRequestClose={() => setShowJuradoTerms(false)}
+              >
+                <View style={styles.modalOverlay}>
+                  <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                      <Text style={styles.modalTitle}>Términos y Privacidad</Text>
+                      <Pressable onPress={() => setShowJuradoTerms(false)}>
+                        <Text style={styles.modalClose}>✕</Text>
+                      </Pressable>
+                    </View>
+                    <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                      <Text style={styles.termsSectionTitle}>Términos de uso</Text>
+                      <Text style={styles.termsSubtitle}>Una comunidad, no una app cualquiera</Text>
+                      <Text style={styles.termsBody}>U•link es exclusivamente para la comunidad de la Escuela Colombiana de Ingeniería — por eso pedimos tu correo institucional para registrarte.</Text>
+                      <Text style={styles.termsSubtitle}>Respeto, siempre</Text>
+                      <Text style={styles.termsBody}>En los parches, chats, eventos y en cualquier rincón de U•link esperamos el mismo respeto que tendrías cara a cara con un compañero. Eso significa cero tolerancia a comportamiento inapropiado, acoso o bullying, discurso de odio, spam o publicidad no solicitada, y contenido ofensivo.</Text>
+                      <Text style={styles.termsSubtitle}>Si algo no está bien, repórtalo</Text>
+                      <Text style={styles.termsBody}>Cualquier miembro puede reportar a otro usuario desde un parche, indicando la categoría y explicando qué pasó. Los reportes llegan de forma anónima a nuestro equipo de administración, que los revisa y decide qué hacer.</Text>
+                      <Text style={styles.termsSubtitle}>Consecuencias</Text>
+                      <Text style={styles.termsBody}>Violaciones repetidas o graves a estas normas pueden llevar a la suspensión temporal o definitiva de la cuenta.</Text>
+                      <Text style={styles.termsSubtitle}>Tu contenido</Text>
+                      <Text style={styles.termsBody}>Lo que compartes (mensajes, publicaciones, archivos) sigue siendo tuyo — solo pedimos que respete estas normas mientras esté en U•link.</Text>
+                      <Text style={styles.termsSubtitle}>Ubicación en vivo</Text>
+                      <Text style={styles.termsBody}>Al usar la función de ubicación en vivo durante un evento, aceptas que tu ubicación se transmita y almacene de forma cifrada, únicamente para efectos de seguridad durante ese evento. De acuerdo con la Ley de Habeas Data (Ley 1581 de 2012), tus datos de ubicación se eliminan automáticamente después de 12 horas, salvo que se haya reportado un incidente durante ese periodo — en ese caso, se conservan como evidencia asociada al reporte.</Text>
+
+                      <Text style={[styles.termsSectionTitle, { marginTop: 24 }]}>Política de privacidad</Text>
+                      <Text style={styles.termsSubtitle}>Qué recopilamos</Text>
+                      <Text style={styles.termsBody}>Tu perfil (nombre, carrera, semestre, intereses), tu actividad dentro de la app (parches, chats y eventos a los que te unes) y, solo mientras la actives, tu ubicación en vivo durante un evento.</Text>
+                      <Text style={styles.termsSubtitle}>Para qué la usamos</Text>
+                      <Text style={styles.termsBody}>Para que la app funcione: hacer match con otros estudiantes, mostrarte parches y eventos relevantes, y — cuando compartes tu ubicación — ayudar a la seguridad durante los eventos.</Text>
+                      <Text style={styles.termsSubtitle}>Ubicación: cifrada y de corta duración</Text>
+                      <Text style={styles.termsBody}>Tu ubicación en vivo se transmite y guarda cifrada, y se borra automáticamente a las 12 horas de haberse registrado, conforme a la Ley de Habeas Data (Ley 1581 de 2012). La única excepción es si hubo un incidente reportado durante ese lapso, caso en el que se conserva como evidencia.</Text>
+                      <Text style={styles.termsSubtitle}>Quién ve los reportes</Text>
+                      <Text style={styles.termsBody}>Solo nuestro equipo de administración revisa los reportes y mensajes de soporte que envías. No se comparten con otros usuarios.</Text>
+                      <Text style={styles.termsSubtitle}>No vendemos tus datos</Text>
+                      <Text style={styles.termsBody}>Tu información nunca se vende ni se comparte con terceros fuera de U•link.</Text>
+                      <Text style={styles.termsSubtitle}>¿Dudas?</Text>
+                      <Text style={styles.termsBody}>Escríbenos a cualquiera de los correos en la sección de Contacto.</Text>
+                      <View style={{ height: 32 }} />
+                    </ScrollView>
+                    <Pressable
+                      style={styles.modalAcceptBtn}
+                      onPress={() => { setJuradoTermsAccepted(true); setShowJuradoTerms(false); }}
+                    >
+                      <Text style={styles.modalAcceptText}>Entendido y acepto</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </Modal>
               <Pressable
                 style={styles.otpLink}
                 onPress={() => {
@@ -469,5 +546,104 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 19.5,
     textDecorationLine: "underline",
+  },
+
+  // ── Jurado terms ──
+  termsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: "rgba(108, 99, 255, 0.5)",
+    backgroundColor: "rgba(108, 99, 255, 0.05)",
+    justifyContent: "center",
+    alignItems: "center",
+    flexShrink: 0,
+  },
+  checkboxChecked: {
+    backgroundColor: "rgba(108, 99, 255, 1)",
+    borderColor: "rgba(108, 99, 255, 1)",
+  },
+  checkmark: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "flex-end",
+  },
+  modalContainer: {
+    backgroundColor: "rgba(18, 14, 40, 1)",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: "88%",
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 8,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "700",
+    fontFamily: "Inter",
+  },
+  modalClose: {
+    color: "rgba(143, 132, 224, 0.7)",
+    fontSize: 18,
+    fontWeight: "600",
+    padding: 4,
+  },
+  modalScroll: {
+    flex: 1,
+  },
+  termsSectionTitle: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 12,
+    fontFamily: "Inter",
+  },
+  termsSubtitle: {
+    color: "rgba(143, 132, 224, 1)",
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 4,
+    marginTop: 14,
+    fontFamily: "Inter",
+  },
+  termsBody: {
+    color: "rgba(200, 195, 230, 0.85)",
+    fontSize: 13,
+    lineHeight: 21,
+    fontFamily: "Inter",
+  },
+  modalAcceptBtn: {
+    backgroundColor: "rgba(108, 99, 255, 1)",
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  modalAcceptText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "700",
+    fontFamily: "Inter",
   },
 });

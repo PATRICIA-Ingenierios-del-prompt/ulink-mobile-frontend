@@ -6,7 +6,7 @@ import { View, ActivityIndicator, StyleSheet } from "react-native";
 
 export default function Index() {
   const { isAuthenticated, isLoading } = useAuth();
-  const { userName } = useContext(AuthContext);
+  const { userName, isJurado } = useContext(AuthContext);
 
   if (isLoading) {
     return (
@@ -17,10 +17,10 @@ export default function Index() {
   }
 
   if (isAuthenticated) {
-    // Si el usuario no tiene nombre (onboarding incompleto), mandarlo a onboarding.
-    // Esto cubre el caso del jurado que llega con nombre: null.
+    // Si no tiene nombre, el onboarding está incompleto.
+    // isJurado viene del AuthContext (detectado del JWT).
     if (!userName) {
-      return <Redirect href="/onboarding" />;
+      return <Redirect href={isJurado ? "/jurado-onboarding" : "/onboarding"} />;
     }
     return <Redirect href="/(tabs)/home" />;
   }
