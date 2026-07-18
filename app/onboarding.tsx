@@ -43,18 +43,21 @@ interface InterestCategory {
   items: string[];
 }
 
+// Labels must match EXACTLY (accents included) the closed catalog in
+// usuarios-service (`Interes.java`) — anything else is rejected with
+// "Interés inválido". The match is case-insensitive but accent-sensitive.
 const INTEREST_CATEGORIES: InterestCategory[] = [
-  { id: "musica", label: "Musica", emoji: "🎵", items: ["Conciertos en vivo", "DJ & Electronica", "Rock & Metal", "Reggaeton & Trap", "Pop & Indie", "Classica & Jazz"] },
-  { id: "estudio", label: "Estudio", emoji: "📚", items: ["Grupos de estudio", "Tutorias", "Hackathones", "Talleres tecnicos", "Presentaciones", "Biblioteca nocturna"] },
-  { id: "deporte", label: "Deporte", emoji: "🏃", items: ["Basquetbol", "Tenis / Tenis de mesa", "Gimnasio", "Futbol & Deportes", "Yoga & Meditacion", "Ciclismo", "Parques & Naturaleza", "Actividades extremas"] },
-  { id: "gastro", label: "Gastronomia", emoji: "🍴", items: ["Comer en campus", "Food trucks", "Cafeterias ocultas", "Comida internacional", "Picnics & Asados", "Intercambio de recetas"] },
-  { id: "tech", label: "Tech & Gaming", emoji: "🎮", items: ["Videojuegos competitivos", "Hackathones de codigo", "Desarrollo web/app", "IA & Machine Learning", "Streaming & Content", "Robotica"] },
-  { id: "arte", label: "Arte & Cultura", emoji: "🎨", items: ["Exposiciones", "Cine & Peliculas", "Teatro & Danza", "Fotografia", "Murales & Street art", "Literatura & Poesia"] },
-  { id: "competencias", label: "Competencias", emoji: "🏆", items: ["Competencias deportivas", "Concursos academicos", "Torneos de juegos", "Desafios de innovacion", "Maratones de programacion", "Competencias de emprendimiento"] },
-  { id: "profesional", label: "Profesional", emoji: "💼", items: ["Charlas de empresas", "Ferias de empleo", "Mentorias", "Grupos profesionales", "Conferencias", "Networking events"] },
-  { id: "sostenibilidad", label: "Sostenibilidad", emoji: "♻️", items: ["Reciclaje & Ecologia", "Voluntariado", "Proyectos sociales", "Derechos humanos", "Comunidad LGBTQ+", "Iniciativas campesinas"] },
-  { id: "viajes", label: "Viajes", emoji: "🌍", items: ["Road trips", "Viajes internacionales", "Intercambios academicos", "Backpacking", "Viajes a pueblos", "Experiencias rurales"] },
-  { id: "bienestar", label: "Bienestar", emoji: "💚", items: ["Meditacion", "Terapia & Apoyo", "Nutricion", "Sueno & Descanso", "Mindfulness", "Comunidad de bienestar"] },
+  { id: "musica", label: "Música", emoji: "🎵", items: ["Conciertos en vivo", "DJ & Electrónica", "Rock & Metal", "Reggaeton & Trap", "Pop & Indie", "Clásica & Jazz"] },
+  { id: "estudio", label: "Estudio", emoji: "📚", items: ["Grupos de estudio", "Tutorías", "Hackathones", "Talleres técnicos", "Presentaciones", "Biblioteca nocturna"] },
+  { id: "deporte", label: "Deporte", emoji: "🏃", items: ["Básquetbol", "Tenis / Tenis de mesa", "Gimnasio", "Fútbol & Deportes", "Yoga & Meditación", "Ciclismo", "Parques & Naturaleza", "Actividades extremas"] },
+  { id: "gastro", label: "Gastronomía", emoji: "🍴", items: ["Comer en campus", "Food trucks", "Cafeterías ocultas", "Comida internacional", "Picnics & Asados", "Intercambio de recetas"] },
+  { id: "tech", label: "Tech & Gaming", emoji: "🎮", items: ["Videojuegos competitivos", "Hackathones de código", "Desarrollo web/app", "IA & Machine Learning", "Streaming & Content", "Robótica"] },
+  { id: "arte", label: "Arte & Cultura", emoji: "🎨", items: ["Exposiciones", "Cine & Películas", "Teatro & Danza", "Fotografía", "Murales & Street art", "Literatura & Poesía"] },
+  { id: "competencias", label: "Competencias", emoji: "🏆", items: ["Competencias deportivas", "Concursos académicos", "Torneos de juegos", "Desafíos de innovación", "Maratones de programación", "Competencias de emprendimiento"] },
+  { id: "profesional", label: "Profesional", emoji: "💼", items: ["Charlas de empresas", "Ferias de empleo", "Mentorías", "Grupos profesionales", "Conferencias", "Networking events"] },
+  { id: "sostenibilidad", label: "Sostenibilidad", emoji: "♻️", items: ["Reciclaje & Ecología", "Voluntariado", "Proyectos sociales", "Derechos humanos", "Comunidad LGBTQ+", "Iniciativas campesinas"] },
+  { id: "viajes", label: "Viajes", emoji: "🌍", items: ["Road trips", "Viajes internacionales", "Intercambios académicos", "Backpacking", "Viajes a pueblos", "Experiencias rurales"] },
+  { id: "bienestar", label: "Bienestar", emoji: "💚", items: ["Meditación", "Terapia & Apoyo", "Nutrición", "Sueño & Descanso", "Mindfulness", "Comunidad de bienestar"] },
 ];
 
 // ─── Progress Bar ────────────────────────────────────────────────────────────

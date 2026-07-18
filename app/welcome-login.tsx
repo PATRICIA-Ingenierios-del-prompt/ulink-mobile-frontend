@@ -264,7 +264,7 @@ export default function WelcomeLoginScreen() {
               />
               {/* Aceptación de términos */}
               <Pressable
-                style={styles.termsRow}
+                style={styles.juradoTermsRow}
                 onPress={() => setJuradoTermsAccepted(v => !v)}
               >
                 <View style={[styles.checkbox, juradoTermsAccepted && styles.checkboxChecked]}>
@@ -549,7 +549,7 @@ const styles = StyleSheet.create({
   },
 
   // ── Jurado terms ──
-  termsRow: {
+  juradoTermsRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,

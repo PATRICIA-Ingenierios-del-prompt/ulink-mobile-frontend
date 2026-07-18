@@ -70,9 +70,10 @@ export interface ActualizarPerfilPayload {
 export interface OnboardingPayload {
   nombre: string;
   apellidos: string;
-  carrera: string;
+  // Optional: jurado accounts complete onboarding without career/semester.
+  carrera?: string;
   segundaCarrera?: string;
-  semestre: number;
+  semestre?: number;
   fechaNacimiento?: string;
   genero?: string;
   foto?: string;

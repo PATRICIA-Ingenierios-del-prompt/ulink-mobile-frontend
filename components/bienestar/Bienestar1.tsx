@@ -1313,6 +1313,10 @@ const styles = StyleSheet.create({
   // ── Dynamic Mono chat styles ──
   chatScrollArea: {
     flex: 1,
+    // container16 uses alignItems:'flex-start', which collapses this
+    // ScrollView's width to its minimum content size (one character per
+    // line → giant vertical bubbles). Stretch it to full width.
+    alignSelf: 'stretch',
     paddingHorizontal: 16,
   },
   chatScrollContent: {

@@ -120,13 +120,20 @@ export default function JuradoOnboardingScreen() {
     }
     setSaving(true);
     try {
+      // El backend valida `intereses` contra las ETIQUETAS del catálogo
+      // ("Conciertos en vivo"), no contra los códigos ("CONCIERTOS_EN_VIVO").
+      // `selected` guarda códigos (clave estable de la UI) — traducir aquí.
+      const etiquetas = catalog
+        .flatMap((c) => c.intereses)
+        .filter((i) => selected.includes(i.codigo))
+        .map((i) => i.etiqueta);
       await apiClient.put(`/api/v1/usuarios/${userId}/perfil`, {
         onboardingCompleto: true,
         nombre: nombre.trim(),
         apellidos: apellidos.trim(),
         carrera: "Jurado Externo",   // requerido por el backend
         semestre: 1,                  // requerido por el backend
-        intereses: selected,
+        intereses: etiquetas,
       });
       setUserName(nombre.trim());
       router.replace("/(tabs)/home");
@@ -140,7 +147,7 @@ export default function JuradoOnboardingScreen() {
     } finally {
       setSaving(false);
     }
-  }, [userId, nombre, apellidos, selected, router, setUserName]);
+  }, [userId, nombre, apellidos, selected, catalog, router, setUserName]);
 
   // ── Step: Terms ──────────────────────────────────────────────────────────────
   if (step === "terms") {
