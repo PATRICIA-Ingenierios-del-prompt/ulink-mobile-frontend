@@ -1,26 +1,33 @@
 import { apiClient } from "./apiClient";
-import { withCache } from "./cache";
+import { cache, withCache } from "./cache";
 import type { UUID } from "./types";
 
 const BASE = "/matching";
 
+/** Mirrors SugerenciaResponse from the Matching MS. */
 export interface SugerenciaResponse {
   candidatoId: UUID;
-  score: number;
-  razon: string;
+  scoreTotal: number;
+  scoreIntereses: number;
+  scoreAcademico: number;
+  scoreDisponibilidad: number;
+  calculadoEn: string;
 }
 
 export type DecisionMatching = "LIKE" | "DESCARTE";
 
-export interface DecisionResponse {
-  matchConfirmado: boolean;
-  matchId?: UUID;
-}
-
+/** Mirrors MatchResponse from the Matching MS. */
 export interface MatchResponse {
   matchId: UUID;
   otroUsuarioId: UUID;
-  fechaMatch: string;
+  scoreTotal: number;
+  confirmadoEn: string;
+}
+
+/** Mirrors DecisionResponse from the Matching MS. */
+export interface DecisionResponse {
+  matchConfirmado: boolean;
+  match: MatchResponse | null;
 }
 
 export const matchingService = {
@@ -40,6 +47,9 @@ export const matchingService = {
       `${BASE}/decisiones`,
       { candidatoId, decision }
     );
+    // A decision changes the suggestion queue and possibly matches/requests —
+    // drop everything so the next read reflects the backend state.
+    cache.invalidatePrefix("matching:");
     return data;
   },
 
@@ -56,5 +66,10 @@ export const matchingService = {
       `${BASE}/solicitudes-recibidas`
     );
     return data;
+  },
+
+  /** Force a fresh read of the suggestion queue (e.g. pull-to-refresh). */
+  invalidarSugerencias(): void {
+    cache.invalidatePrefix("matching:sugerencias");
   },
 };
